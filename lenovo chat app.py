@@ -35,9 +35,15 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Roboto+Mono:wght@300;400;500&display=swap');
 
     /* --- GLOBAL HIDES --- */
-    #MainMenu, footer, header, .stDeployButton, [data-testid="stToolbar"], [data-testid="stHeader"] {
+    #MainMenu, footer, .stDeployButton, [data-testid="stToolbar"] {
         visibility: hidden;
         display: none;
+    }
+
+    /* --- HEADER ADAPTATION (Keeps Sidebar Toggle Visible) --- */
+    [data-testid="stHeader"] {
+        background-color: transparent;
+        color: #E2231A;
     }
 
     /* --- MAIN APP CONTAINER --- */
