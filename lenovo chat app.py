@@ -746,21 +746,31 @@ def render_live_updates(rid):
     
     # 2. Render Timer/Status Badge (VISIBLE OUTSIDE CHAT BOX)
     if status == 'Active':
-        # Logic to show who is typing/waiting
-        if is_agent_turn:
-            if user_role == 'Agent':
-                 # Agent sees: YOUR TURN
-                 st.markdown(f"<div class='timer-badge timer-warn'>👉 ACTION REQUIRED: YOUR TURN ({int(diff)}s)</div>", unsafe_allow_html=True)
+        # Burst Mode Logic: Allow multiple messages for 5 seconds before switching turn visual
+        if diff < 5.0:
+            # If I just sent the message, show "Sent/Add More"
+            # If Agent just sent (is_agent_turn is False)
+            if not is_agent_turn and user_role == 'Agent':
+                st.markdown(f"<div class='timer-badge timer-ok'>✅ SENT (Type to add more...)</div>", unsafe_allow_html=True)
+            elif is_agent_turn and user_role != 'Agent': # Customer just sent
+                 st.markdown(f"<div class='timer-badge timer-ok'>✅ SENT (Type to add more...)</div>", unsafe_allow_html=True)
             else:
-                 # Customer/Manager sees: Agent Writing
-                 st.markdown(f"<div class='timer-badge typing-indicator'>🔴 AGENT WRITING...</div>", unsafe_allow_html=True)
+                 # I am waiting, but it's fresh. Show "Typing..."
+                 target = "AGENT" if not is_agent_turn else "CUSTOMER"
+                 st.markdown(f"<div class='timer-badge typing-indicator'>{target} TYPING...</div>", unsafe_allow_html=True)
+
         else:
-            if user_role == 'Agent':
-                # Agent sees: Customer Writing
-                st.markdown(f"<div class='timer-badge typing-indicator'>👤 CUSTOMER WRITING...</div>", unsafe_allow_html=True)
+            # Standard Turn Logic (After 5s delay)
+            if is_agent_turn:
+                if user_role == 'Agent':
+                    st.markdown(f"<div class='timer-badge timer-warn'>👉 ACTION REQUIRED: YOUR TURN ({int(diff)}s)</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<div class='timer-badge typing-indicator'>🔴 AGENT WRITING...</div>", unsafe_allow_html=True)
             else:
-                # Customer sees: Waiting for Agent (technically customer turn)
-                st.markdown(f"<div class='timer-badge timer-ok'>💬 PLEASE REPLY...</div>", unsafe_allow_html=True)
+                if user_role == 'Agent':
+                    st.markdown(f"<div class='timer-badge typing-indicator'>👤 CUSTOMER WRITING...</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<div class='timer-badge timer-ok'>💬 PLEASE REPLY...</div>", unsafe_allow_html=True)
 
     elif status == 'Expired':
         st.markdown(f"<div class='timer-badge timer-crit'>💀 CHAT EXPIRED (AGENT TIMEOUT)</div>", unsafe_allow_html=True)
