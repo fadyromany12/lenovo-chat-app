@@ -4,11 +4,105 @@ import json
 import datetime
 import pandas as pd
 import time
+import socket
+
+# --- PAGE CONFIGURATION (Must be first) ---
+st.set_page_config(
+    page_title="Lenovo QA Manager Pro", 
+    page_icon="🔴", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# --- CUSTOM CSS STYLING ---
+st.markdown("""
+<style>
+    /* Main Background & Font */
+    .stApp {
+        background-color: #f8f9fa;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    /* Sidebar Styling */
+    [data-testid="stSidebar"] {
+        background-color: #1e1e1e;
+        color: white;
+    }
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
+        color: #E2231A !important; /* Lenovo Red */
+    }
+    [data-testid="stSidebar"] p, [data-testid="stSidebar"] span {
+        color: #cccccc;
+    }
+    
+    /* Buttons */
+    .stButton > button {
+        background-color: #E2231A;
+        color: white;
+        border-radius: 4px;
+        border: none;
+        font-weight: bold;
+        transition: all 0.3s ease;
+    }
+    .stButton > button:hover {
+        background-color: #b91b14;
+        color: white;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+    }
+    
+    /* Metrics */
+    [data-testid="stMetricValue"] {
+        font-size: 2.5rem !important;
+        color: #333;
+    }
+    
+    /* Chat Message Bubbles */
+    .stChatMessage {
+        background-color: white;
+        border: 1px solid #eee;
+        border-radius: 10px;
+        padding: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    [data-testid="stChatMessageAvatar"] {
+        background-color: #E2231A;
+        color: white;
+    }
+
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: white;
+        border-radius: 4px;
+        color: #333;
+        border: 1px solid #ddd;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #E2231A !important;
+        color: white !important;
+        border: none;
+    }
+    
+    /* Headers */
+    h1, h2, h3 {
+        color: #333;
+        font-weight: 600;
+    }
+    
+    /* Custom Alerts */
+    .success-box { padding: 10px; background-color: #d4edda; color: #155724; border-radius: 5px; border-left: 5px solid #28a745; margin-bottom: 5px;}
+    .fail-box { padding: 10px; background-color: #f8d7da; color: #721c24; border-radius: 5px; border-left: 5px solid #dc3545; margin-bottom: 5px;}
+</style>
+""", unsafe_allow_html=True)
 
 # --- CONFIGURATION & CONSTANTS ---
 DB_FILE = "qa_database.db"
 
-# 1. FULL KEYWORD DICTIONARY (Exact match to original)
+# 1. FULL KEYWORD DICTIONARY
 DEFAULT_KEYWORDS = {
     "greetings": [
         'hello', 'hi', 'welcome', 'good morning', 'good afternoon', 'good evening', 
@@ -68,7 +162,7 @@ DEFAULT_KEYWORDS = {
 DEFAULT_SCORECARD = [
     # Opening
     {"id": "greet", "name": "Opening: Greet & Intro", "weight": 2.0, "keywords": "greetings"},
-    {"id": "confirm", "name": "Opening: Confirm Name/Reason", "weight": 3.0, "keywords": ""}, # Manual/Context
+    {"id": "confirm", "name": "Opening: Confirm Name/Reason", "weight": 3.0, "keywords": ""}, 
     # Communication
     {"id": "listening", "name": "Comm: Active Listening", "weight": 5.0, "keywords": ""},
     {"id": "clear", "name": "Comm: Clear Language", "weight": 5.0, "keywords": ""},
@@ -90,7 +184,7 @@ DEFAULT_SCORECARD = [
     {"id": "csat", "name": "Closing: CSAT Statement", "weight": 5.0, "keywords": "csat"}
 ]
 
-# 3. COACHING TIPS (Suggestions)
+# 3. COACHING TIPS
 COACHING_TIPS = {
     "greet": "Start with a standard greeting: 'Thank you for contacting Lenovo, my name is...'",
     "empathy": "Use empathy statements like 'I understand how frustrating this is' or 'I apologize for the delay'.",
@@ -175,7 +269,17 @@ def update_config(key, value):
     conn.commit()
     conn.close()
 
-# --- AUTO GRADING ENGINE (PYTHON) ---
+def get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except:
+        return "127.0.0.1"
+
+# --- AUTO GRADING ENGINE ---
 def perform_grading(messages, scorecard):
     if messages.empty:
         return 0, {}, None, []
@@ -213,30 +317,20 @@ def perform_grading(messages, scorecard):
             max_score += weight
             passed = False
             
-            # Get keyword list name from criteria
             kw_key = criteria.get('keywords', '')
             keywords = DEFAULT_KEYWORDS.get(kw_key, [])
             c_id = criteria.get('id', '')
 
-            # Logic Handlers
             if c_id == 'discovery':
-                # Count questions (?) or discovery words
                 q_count = full_text.count('?')
                 disc_count = sum(1 for k in keywords if k in full_text)
                 if q_count >= 2 or disc_count >= 2: passed = True
             elif c_id == 'hold':
-                # Pass if hold wasn't used, or if used correctly. 
-                # For simulation, we look for hold words. If found -> PASS. If not -> N/A (Full Points)
-                # To simplify: Check if they used hold words OR if it's N/A
                 passed = True 
             elif keywords:
-                # Check simple existence
                 if any(k in full_text for k in keywords):
                     passed = True
             else:
-                # Default Pass for subjective items (Listening, Tone, etc)
-                # In a real app, Manager would manually toggle these. 
-                # Here we default to Pass for the simulation flow.
                 passed = True
             
             if passed:
@@ -251,7 +345,6 @@ def perform_grading(messages, scorecard):
     return final_score, breakdown, critical_fail, suggestions
 
 # --- MAIN APP UI ---
-st.set_page_config(page_title="Lenovo QA Sim", page_icon="💬", layout="wide")
 
 # Initialize Session State
 if 'user' not in st.session_state:
@@ -259,123 +352,147 @@ if 'user' not in st.session_state:
 if 'role' not in st.session_state:
     st.session_state['role'] = None
 
-# 1. LOGIN SCREEN
-if not st.session_state['user']:
-    st.title("Lenovo QA Simulation (Python)")
-    with st.form("login"):
-        name = st.text_input("Enter your Name")
-        role = st.selectbox("Select Role", ["Manager", "Agent"])
-        submitted = st.form_submit_button("Enter Lobby")
-        if submitted and name:
-            st.session_state['user'] = name
-            st.session_state['role'] = role
-            init_db() # Ensure DB exists
-            st.rerun()
+# Sidebar Content (Persistent)
+with st.sidebar:
+    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/Lenovo_logo_2015.svg/2560px-Lenovo_logo_2015.svg.png", width=150)
+    st.write("---")
+    
+    # Display Server IP for Network Access
+    local_ip = get_local_ip()
+    st.info(f"📡 **Network Access Link:**\n\n`http://{local_ip}:8501`")
+    st.caption("Share this link with other PCs on the same Wi-Fi.")
 
-else:
-    # 2. MAIN APP
-    with st.sidebar:
-        st.header(f"👤 {st.session_state['user']}")
+    if st.session_state['user']:
+        st.subheader(f"👤 {st.session_state['user']}")
         st.caption(f"Role: {st.session_state['role']}")
-        if st.button("Logout"):
+        if st.button("Logout", use_container_width=True):
             st.session_state['user'] = None
             st.rerun()
         
-        st.divider()
-        st.subheader("Rooms")
+        st.write("---")
+        st.subheader("Simulations")
         
-        # Room Controls
         if st.session_state['role'] == "Manager":
-            if st.button("➕ Create New Room"):
+            if st.button("➕ Start New Sim", use_container_width=True):
                 rid = create_room(st.session_state['user'])
                 st.session_state['active_room'] = rid
                 st.rerun()
 
         # Room List
         rooms = get_rooms()
-        for idx, row in rooms.iterrows():
-            label = f"#{row['id']} {row['host']} vs {row['agent']}"
-            if st.button(label, key=f"room_{row['id']}"):
-                st.session_state['active_room'] = row['id']
-                if st.session_state['role'] == 'Agent' and row['agent'] == 'Waiting...':
-                    join_room(row['id'], st.session_state['user'])
+        if rooms.empty:
+            st.caption("No active rooms.")
+        else:
+            for idx, row in rooms.iterrows():
+                # Dynamic Icon
+                status_icon = "🟢" if row['status'] == 'Active' else "🏁"
+                if st.button(f"{status_icon} #{row['id']} {row['host']}", key=f"room_{row['id']}", use_container_width=True):
+                    st.session_state['active_room'] = row['id']
+                    if st.session_state['role'] == 'Agent' and row['agent'] == 'Waiting...':
+                        join_room(row['id'], st.session_state['user'])
+                    st.rerun()
+
+# 1. LOGIN SCREEN
+if not st.session_state['user']:
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        st.write("")
+        st.write("")
+        st.markdown("<h1 style='text-align: center; color: #E2231A;'>QA Manager Pro</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center;'>Quality Assurance Simulation Environment</p>", unsafe_allow_html=True)
+        
+        with st.form("login"):
+            name = st.text_input("Enter your Name", placeholder="e.g. John Doe")
+            role = st.selectbox("Select Role", ["Manager", "Agent"])
+            st.write("")
+            submitted = st.form_submit_button("Enter Workspace", use_container_width=True)
+            if submitted and name:
+                st.session_state['user'] = name
+                st.session_state['role'] = role
+                init_db()
                 st.rerun()
 
-    # 3. WORKSPACE
+else:
+    # 2. WORKSPACE
     if 'active_room' in st.session_state:
         room_id = st.session_state['active_room']
         
-        # Layout: Chat | Tools
+        # Header
+        col_head_1, col_head_2 = st.columns([3, 1])
+        with col_head_1:
+            st.title(f"Simulation Room #{room_id}")
+        with col_head_2:
+            st.button("🔄 Refresh", key="refresh_top", use_container_width=True)
+
         col1, col2 = st.columns([2, 1])
         
         # --- CHAT COLUMN ---
         with col1:
-            st.subheader(f"💬 Chat Room #{room_id}")
+            st.markdown("### 💬 Live Conversation")
             
-            # Display Messages
+            # Message Container
             msgs = get_messages(room_id)
-            chat_container = st.container(height=500)
+            chat_container = st.container(height=600)
+            
             with chat_container:
                 if msgs.empty:
-                    st.info("No messages yet. Start typing below!")
+                    st.markdown("<div style='text-align: center; color: #999; padding: 50px;'>No messages yet.<br>Start the roleplay!</div>", unsafe_allow_html=True)
                 else:
                     for idx, m in msgs.iterrows():
-                        is_me = m['sender'] == st.session_state['user']
-                        # Differentiate bubbles
-                        with st.chat_message(m['role'], avatar="👤" if m['role']=='Agent' else "👔"):
-                            st.write(f"**{m['sender']}**: {m['text']}")
+                        role_type = m['role']
+                        avatar = "👤" if role_type == 'Agent' else "👔"
+                        with st.chat_message(role_type, avatar=avatar):
+                            st.write(m['text'])
             
-            # Input
-            if prompt := st.chat_input("Type a message..."):
+            # Input Area
+            if prompt := st.chat_input("Type your message here..."):
                 send_message(room_id, st.session_state['user'], st.session_state['role'], prompt)
                 st.rerun()
-                
-            # Refresh button for manual update
-            st.button("🔄 Refresh Chat", key="refresh_chat")
 
         # --- TOOLS COLUMN ---
         with col2:
-            st.subheader("⚙️ Controls")
+            st.markdown("### ⚙️ QA Tools")
             
             if st.session_state['role'] == "Manager":
-                tab1, tab2 = st.tabs(["📝 Grading", "🔧 Scorecard"])
+                tab1, tab2 = st.tabs(["📊 Grading", "🔧 Settings"])
                 
                 # Grading Tab
                 with tab1:
-                    st.write("Click below to analyze the chat for QA scores.")
+                    st.write("Real-time Analysis")
                     
-                    # FIXED BUTTON ERROR HERE:
-                    if st.button("Run Auto-Analysis", key="run_grading"):
-                        scorecard = get_config('scorecard')
-                        score, breakdown, crit, suggestions = perform_grading(msgs, scorecard)
+                    if st.button("Run Auto-Analysis", key="run_grading", use_container_width=True):
+                        with st.spinner("Analyzing sentiment and compliance..."):
+                            time.sleep(0.5) # UI feel
+                            scorecard = get_config('scorecard')
+                            score, breakdown, crit, suggestions = perform_grading(msgs, scorecard)
                         
-                        st.divider()
+                        st.markdown("---")
                         if crit:
-                            st.error(f"CRITICAL FAIL: {crit}")
-                            st.metric("Final Score", "0%")
+                            st.error(f"⚠️ {crit}")
+                            st.markdown(f"<div style='text-align: center; font-size: 40px; font-weight: bold; color: #dc3545;'>0%</div>", unsafe_allow_html=True)
                         else:
-                            color = "normal" if score < 80 else "inverse"
-                            st.metric("Final Score", f"{score}%", delta_color=color)
+                            color = "#28a745" if score >= 80 else "#ffc107"
+                            st.markdown(f"<div style='text-align: center; font-size: 50px; font-weight: bold; color: {color};'>{score}%</div>", unsafe_allow_html=True)
                         
                         # Coaching Tips
                         if suggestions:
-                            st.warning("💡 Coaching Suggestions:")
+                            st.warning("💡 Coaching Required:")
                             for tip in suggestions:
-                                st.write(f"- {tip}")
-                        else:
-                            if not crit: st.success("🎉 Perfect Chat! No suggestions.")
+                                st.markdown(f"- {tip}")
+                        elif not crit:
+                             st.success("🎉 Excellent Handling!")
 
                         st.write("### Breakdown")
                         for k, v in breakdown.items():
                             if v == "PASS":
-                                st.success(f"✅ {k}")
+                                st.markdown(f"<div class='success-box'>✅ {k}</div>", unsafe_allow_html=True)
                             else:
-                                st.error(f"❌ {k}")
+                                st.markdown(f"<div class='fail-box'>❌ {k}</div>", unsafe_allow_html=True)
 
                 # Scorecard Editor Tab
                 with tab2:
                     current_sc = get_config('scorecard')
-                    st.info("Edit Weights & Criteria")
+                    st.info("Customize Scorecard Weights")
                     
                     updated_sc = []
                     for item in current_sc:
@@ -386,21 +503,26 @@ else:
                             item['name'] = new_n
                             updated_sc.append(item)
                     
-                    if st.button("Save Scorecard Changes", key="save_scorecard"):
+                    if st.button("Save Changes", key="save_scorecard", use_container_width=True):
                         update_config('scorecard', updated_sc)
-                        st.success("Saved!")
+                        st.success("Configuration Saved!")
             
             else:
                 # Agent View
-                st.info("You are in Agent Mode. Focus on the chat!")
+                st.info("Agent Dashboard")
                 st.markdown("""
-                **Quick Guide:**
-                - **Greeting:** Start professionally.
-                - **Discovery:** Ask 'What usage?' or 'What budget?'.
-                - **Empathy:** Say 'sorry' or 'understand' if needed.
-                - **Warranty:** Mention warranty support.
-                - **Closing:** 'Is there anything else?'
+                **Active Guidelines:**
+                - **Greeting:** Standard Intro.
+                - **Discovery:** 2+ Probing Questions.
+                - **Empathy:** Acknowledge frustration.
+                - **Warranty:** Pitch support options.
+                - **Closing:** Professional wrap-up.
                 """)
 
     else:
-        st.info("👈 Select or Create a room from the sidebar to start.")
+        st.markdown("""
+        <div style='text-align: center; margin-top: 50px; color: #666;'>
+            <h2>Ready to start?</h2>
+            <p>Select a room from the sidebar or create a new one.</p>
+        </div>
+        """, unsafe_allow_html=True)
