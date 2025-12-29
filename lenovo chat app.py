@@ -55,6 +55,8 @@ st.markdown("""
         color: #e0e0e0;
         font-family: 'Roboto Mono', monospace;
     }
+            
+            
 
     /* --- TYPOGRAPHY --- */
     h1, h2, h3, h4, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
@@ -75,42 +77,7 @@ st.markdown("""
     section[data-testid="stSidebar"] hr {
         border-color: #333;
     }
-            
-          /* --- FIX: SIDEBAR COLLAPSE BUTTON (NUCLEAR OPTION) --- */
-    [data-testid="stSidebarCollapsedControl"] {
-        /* 1. Force Visibility against all odds */
-        display: block !important;
-        visibility: visible !important;
-        opacity: 1 !important;
         
-        /* 2. Force Position to top-left corner of the SCREEN */
-        position: fixed !important;
-        top: 20px !important;
-        left: 20px !important;
-        
-        /* 3. Extreme Z-Index to sit above everything (headers, backgrounds) */
-        z-index: 9999999 !important;
-        
-        /* 4. High Contrast Styling (Bright Red Box) */
-        background-color: #E2231A !important; /* Lenovo Red */
-        color: #FFFFFF !important; /* White Arrow */
-        border: 2px solid #FFFFFF !important;
-        border-radius: 8px !important;
-        
-        /* 5. Force Size so it cannot be shrunk */
-        width: 40px !important;
-        height: 40px !important;
-        padding: 5px !important;
-    }
-
-    /* Hover Effect */
-    [data-testid="stSidebarCollapsedControl"]:hover {
-        background-color: #FFFFFF !important;
-        color: #E2231A !important;
-        transform: scale(1.1);
-        box-shadow: 0 0 15px rgba(226, 35, 26, 0.9);
-    }
-
     /* --- INPUT FIELDS (TERMINAL STYLE) --- */
     .stTextInput input, .stSelectbox div[data-baseweb="select"] > div {
         background-color: rgba(20, 20, 20, 0.8) !important;
