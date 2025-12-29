@@ -12,21 +12,31 @@ st.set_page_config(
     page_title="Lenovo Chat App", 
     page_icon="💬", 
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    # Hide default menu items
+    menu_items={
+        'Get Help': None,
+        'Report a bug': None,
+        'About': None
+    }
 )
 
 # --- CUSTOM CSS STYLING (FORCED DARK MODE & ANIMATIONS) ---
 st.markdown("""
 <style>
+    /* --- HIDE STREAMLIT UI ELEMENTS --- */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .stDeployButton {display:none;}
+    [data-testid="stToolbar"] {visibility: hidden;}
+    [data-testid="stHeader"] {visibility: hidden;}
+    
     /* Global Dark Theme Enforcement */
     [data-testid="stAppViewContainer"] {
         background-color: #121212;
         color: #e0e0e0;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    }
-    
-    [data-testid="stHeader"] {
-        background-color: rgba(0,0,0,0);
     }
 
     /* Animations */
