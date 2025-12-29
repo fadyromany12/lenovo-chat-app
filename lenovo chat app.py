@@ -289,6 +289,14 @@ def join_room(rid, agent):
     conn.commit()
     conn.close()
 
+def delete_room(rid):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("DELETE FROM rooms WHERE id = ?", (rid,))
+    c.execute("DELETE FROM messages WHERE room_id = ?", (rid,))
+    conn.commit()
+    conn.close()
+
 def send_msg(rid, sender, role, text):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -331,7 +339,7 @@ def get_ip():
     except: return "127.0.0.1"
 
 def check_room_status(rid):
-    """Checks for Expiry (30s) and Offline (5min) - Agent Only Logic"""
+    """Checks for Expiry (5min) and Offline (10min) - Agent Only Logic"""
     try:
         conn = sqlite3.connect(DB_FILE)
         
@@ -352,11 +360,6 @@ def check_room_status(rid):
         msg_row = conn.execute("SELECT role FROM messages WHERE room_id = ? ORDER BY id DESC LIMIT 1", (rid,)).fetchone()
         last_role = msg_row[0] if msg_row else None
         
-        # Logic: Timer active only if it's Agent's turn.
-        # It is Agent's turn if:
-        # a) No messages yet (Agent must Greet)
-        # b) Last message was from Manager (Agent must Reply)
-        # c) Agent role is different from last sender role (if last sender was not Agent)
         is_agent_turn = (last_role != 'Agent')
 
         if not last_act_str: 
@@ -374,9 +377,9 @@ def check_room_status(rid):
         # 4. Status Update Logic (Only if it's Agent's turn)
         new_status = status
         if status == 'Active' and is_agent_turn:
-            if diff > 300: # 5 mins
+            if diff > 600: # 10 mins offline
                 new_status = 'Offline'
-            elif diff > 30: # 30 sec
+            elif diff > 300: # 5 min expiry
                 new_status = 'Expired'
             
             if new_status != status:
@@ -390,13 +393,13 @@ def check_room_status(rid):
         return "Error", 0, False
 
 # --- GRADING ENGINE ---
-def grade_chat(msgs, sc):
-    if msgs.empty: return 0, {}, None, []
+def auto_grade_chat(msgs, sc):
+    """Initial Auto-Grading using Keywords/Regex"""
+    if msgs.empty: return {}, None, []
     
     agent_msgs = msgs[msgs['role']=='Agent']
     agent_text = " ".join(agent_msgs['text'].astype(str).str.lower().tolist())
     
-    score, max_s = 0, 0
     breakdown = {}
     crit = None
     tips = []
@@ -412,10 +415,7 @@ def grade_chat(msgs, sc):
     if not crit:
         # 2. Scorecard Logic with Regex & Keywords
         for item in sc:
-            w = float(item['weight'])
-            max_s += w
             passed = False
-            
             cid = item['id']
             
             # Smart Logic
@@ -430,27 +430,53 @@ def grade_chat(msgs, sc):
             elif cid == 'end_prof':
                 if re.search(INTENT_REGEX['closing'], agent_text): passed = True
             elif cid == 'product':
-                # Check for product keywords
                 if any(p in agent_text for p in KEYWORDS['products']): passed = True
             elif cid == 'objection':
-                # Check for objection handling words
                 if any(o in agent_text for o in KEYWORDS['objection']): passed = True
             else:
-                # Fallback to simple keyword match if provided
                 kw_key = item.get('keywords', '')
                 kws = KEYWORDS.get(kw_key, [])
                 if kws and any(k in agent_text for k in kws): passed = True
-                elif not kws: passed = True # Default pass for subjective if no keywords
+                elif not kws: passed = True # Default pass for subjective
             
-            if passed:
-                score += w
-                breakdown[item['name']] = "PASS"
-            else:
-                breakdown[item['name']] = "FAIL"
-                tips.append(f"{item['name']}: Try using words like {', '.join(KEYWORDS.get(cid, ['...'])[:3])}")
+            breakdown[item['name']] = "PASS" if passed else "FAIL"
+            if not passed:
+                 tips.append(f"{item['name']}: Try using words like {', '.join(KEYWORDS.get(cid, ['...'])[:3])}")
 
-    final = 0 if crit else int((score/max_s)*100) if max_s > 0 else 0
-    return final, breakdown, crit, tips
+    return breakdown, crit, tips
+
+def calculate_final_score(breakdown, crit, sc):
+    """Calculates score from breakdown dictionary (Auto or Manual)"""
+    if crit: return 0
+    
+    score = 0
+    max_score = 0
+    
+    for item in sc:
+        w = float(item['weight'])
+        max_score += w
+        if breakdown.get(item['name']) == "PASS":
+            score += w
+            
+    return int((score / max_score) * 100) if max_score > 0 else 0
+
+def generate_export_text(rid, msgs, score, breakdown, crit):
+    """Generates a text report"""
+    lines = []
+    lines.append(f"LENOVO QA REPORT - ROOM #{rid}")
+    lines.append("="*40)
+    lines.append(f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"Final Score: {score}%")
+    if crit: lines.append(f"CRITICAL FAIL: {crit}")
+    lines.append("\n--- CHAT TRANSCRIPT ---")
+    for _, m in msgs.iterrows():
+        lines.append(f"[{m['timestamp']}] {m['sender']} ({m['role']}): {m['text']}")
+    
+    lines.append("\n--- GRADING BREAKDOWN ---")
+    for k, v in breakdown.items():
+        lines.append(f"{k}: {v}")
+        
+    return "\n".join(lines)
 
 # --- UI FRAGMENTS (Modern Streamlit) ---
 @st.fragment(run_every=0.5)
@@ -463,17 +489,17 @@ def render_live_chat(rid):
     # Timer Display
     if status == 'Active':
         if is_agent_turn:
-            if diff < 30:
-                st.markdown(f"<div class='timer-badge timer-ok'>⏱️ Reply Time: {int(diff)}s / 30s</div>", unsafe_allow_html=True)
+            if diff < 300: # 5 min
+                st.markdown(f"<div class='timer-badge timer-ok'>⏱️ Reply Time: {int(diff)}s / 300s</div>", unsafe_allow_html=True)
             else:
                 st.markdown(f"<div class='timer-badge timer-crit'>⚠️ OVERTIME: {int(diff)}s</div>", unsafe_allow_html=True)
         else:
             st.markdown(f"<div class='timer-badge timer-wait'>⏳ Customer Typing...</div>", unsafe_allow_html=True)
             
     elif status == 'Expired':
-        st.markdown(f"<div class='timer-badge timer-crit'>💀 CHAT EXPIRED (Agent No Reply > 30s)</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='timer-badge timer-crit'>💀 CHAT EXPIRED (Agent No Reply > 5m)</div>", unsafe_allow_html=True)
     elif status == 'Offline':
-        st.markdown(f"<div class='timer-badge timer-warn'>💤 OFFLINE (Inactive > 5m)</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='timer-badge timer-warn'>💤 OFFLINE (Inactive > 10m)</div>", unsafe_allow_html=True)
 
     # 2. Render Messages
     msgs = get_msgs(rid)
@@ -486,6 +512,7 @@ def render_live_chat(rid):
 
 # --- APP LAYOUT ---
 if 'user' not in st.session_state: st.session_state['user'] = None
+if 'manual_grading' not in st.session_state: st.session_state['manual_grading'] = {} # Store grading state
 
 # SIDEBAR
 with st.sidebar:
@@ -496,6 +523,7 @@ with st.sidebar:
         st.write(f"Logged in as: **{st.session_state['user']}** ({st.session_state['role']})")
         if st.button("Logout", use_container_width=True):
             st.session_state['user'] = None
+            st.session_state['active_room'] = None
             st.rerun()
         
         st.divider()
@@ -504,6 +532,7 @@ with st.sidebar:
             if st.button("➕ Create Room", use_container_width=True):
                 rid = create_room(st.session_state['user'])
                 st.session_state['active_room'] = rid
+                st.session_state['manual_grading'] = {} # Reset grading on new room
                 st.rerun()
         
         if st.button("🔄 Refresh Rooms", use_container_width=True): st.rerun()
@@ -518,11 +547,23 @@ with st.sidebar:
                 
                 label = f"{icon} #{r['id']} {r['host']}"
                 if r['agent'] != 'Waiting...': label += f" vs {r['agent']}"
-                if st.button(label, key=f"r_{r['id']}", use_container_width=True):
-                    st.session_state['active_room'] = r['id']
-                    if st.session_state['role'] == 'Agent' and r['agent'] == 'Waiting...':
-                        join_room(r['id'], st.session_state['user'])
-                    st.rerun()
+                
+                c1, c2 = st.columns([4, 1])
+                with c1:
+                    if st.button(label, key=f"r_{r['id']}", use_container_width=True):
+                        st.session_state['active_room'] = r['id']
+                        if st.session_state['role'] == 'Agent' and r['agent'] == 'Waiting...':
+                            join_room(r['id'], st.session_state['user'])
+                        st.session_state['manual_grading'] = {} # Reset
+                        st.rerun()
+                with c2:
+                     # Delete Button for Manager
+                     if st.session_state['role'] == "Manager":
+                         if st.button("🗑️", key=f"del_{r['id']}"):
+                             delete_room(r['id'])
+                             if st.session_state.get('active_room') == r['id']:
+                                 st.session_state['active_room'] = None
+                             st.rerun()
 
 # MAIN AREA
 if not st.session_state['user']:
@@ -539,7 +580,7 @@ if not st.session_state['user']:
                     init_db()
                     st.rerun()
 else:
-    if 'active_room' in st.session_state:
+    if 'active_room' in st.session_state and st.session_state['active_room']:
         rid = st.session_state['active_room']
         col_chat, col_tools = st.columns([2, 1])
         
@@ -559,25 +600,67 @@ else:
             if st.session_state['role'] == 'Manager':
                 tab1, tab2 = st.tabs(["Grading", "Setup"])
                 with tab1:
-                    if st.button("Run Analysis", use_container_width=True):
-                        msgs = get_msgs(rid)
-                        sc = get_config('scorecard')
-                        score, bd, crit, tips = grade_chat(msgs, sc)
+                    msgs = get_msgs(rid)
+                    sc = get_config('scorecard')
+                    
+                    # 1. RUN AUTO ANALYSIS
+                    if st.button("Run Auto-Analysis", use_container_width=True):
+                        bd, crit, tips = auto_grade_chat(msgs, sc)
+                        st.session_state['manual_grading'] = bd # Init manual with auto
+                        st.session_state['crit_fail'] = crit
+                        st.session_state['tips'] = tips
+                        st.rerun()
+
+                    # 2. MANUAL GRADING FORM
+                    if 'manual_grading' in st.session_state and st.session_state['manual_grading']:
+                        crit = st.session_state.get('crit_fail')
+                        tips = st.session_state.get('tips', [])
                         
+                        # Calculate current score based on manual toggles
+                        current_score = calculate_final_score(st.session_state['manual_grading'], crit, sc)
+                        
+                        # Score Display
                         if crit:
                             st.markdown(f"<div class='grade-container grade-fail'><div class='grade-score'>0%</div><div style='text-align:center'>{crit}</div></div>", unsafe_allow_html=True)
                         else:
-                            cls = "grade-pass" if score >= 85 else "grade-fail"
-                            st.markdown(f"<div class='grade-container {cls}'><div class='grade-score'>{score}%</div></div>", unsafe_allow_html=True)
+                            cls = "grade-pass" if current_score >= 85 else "grade-fail"
+                            st.markdown(f"<div class='grade-container {cls}'><div class='grade-score'>{current_score}%</div></div>", unsafe_allow_html=True)
                         
-                        if tips:
-                            st.warning("Coaching Tips:")
-                            for t in tips: st.markdown(f"- {t}")
+                        st.write("---")
+                        st.write("### Grading Breakdown (Editable)")
                         
-                        st.write("Breakdown:")
-                        for k, v in bd.items():
-                            c = "grade-pass" if v == "PASS" else "grade-fail"
-                            st.markdown(f"<div class='grade-container {c}' style='padding:8px; margin-bottom:5px;'>{k}: <b>{v}</b></div>", unsafe_allow_html=True)
+                        # Editable Breakdown
+                        for item in sc:
+                            name = item['name']
+                            current_val = st.session_state['manual_grading'].get(name, "FAIL")
+                            
+                            # Radio button for manual toggle
+                            new_val = st.radio(
+                                f"{name} ({item['weight']}%)", 
+                                ["PASS", "FAIL"], 
+                                index=0 if current_val == "PASS" else 1,
+                                horizontal=True,
+                                key=f"radio_{name}"
+                            )
+                            
+                            # Update state if changed
+                            if new_val != current_val:
+                                st.session_state['manual_grading'][name] = new_val
+                                st.rerun() # Refresh to update score
+
+                        # Export Button
+                        st.write("---")
+                        report_text = generate_export_text(rid, msgs, current_score, st.session_state['manual_grading'], crit)
+                        st.download_button(
+                            label="📥 Export Chat & Report",
+                            data=report_text,
+                            file_name=f"Lenovo_QA_Report_{rid}.txt",
+                            mime="text/plain",
+                            use_container_width=True
+                        )
+
+                    else:
+                        st.info("Click 'Run Auto-Analysis' to start grading.")
                 
                 with tab2:
                     st.info("Scorecard Config")
