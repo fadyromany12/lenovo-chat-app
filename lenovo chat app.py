@@ -76,33 +76,39 @@ st.markdown("""
         border-color: #333;
     }
             
-           /* --- FIX: SIDEBAR COLLAPSE BUTTON --- */
+          /* --- FIX: SIDEBAR COLLAPSE BUTTON (NUCLEAR OPTION) --- */
     [data-testid="stSidebarCollapsedControl"] {
-        /* 1. Force Visibility */
+        /* 1. Force Visibility against all odds */
         display: block !important;
         visibility: visible !important;
+        opacity: 1 !important;
         
-        /* 2. Lock Position to Top-Left of the Screen */
-        position: fixed !important; 
+        /* 2. Force Position to top-left corner of the SCREEN */
+        position: fixed !important;
         top: 20px !important;
         left: 20px !important;
         
-        /* 3. Ensure it sits on top of your black background */
-        z-index: 999999 !important;
+        /* 3. Extreme Z-Index to sit above everything (headers, backgrounds) */
+        z-index: 9999999 !important;
         
-        /* 4. Styling to match your theme */
-        color: #E2231A !important;
-        background-color: #000000 !important;
-        border: 1px solid #E2231A !important;
-        border-radius: 50% !important; /* Make it a circle */
-        width: 40px;
-        height: 40px;
-        transition: transform 0.3s;
+        /* 4. High Contrast Styling (Bright Red Box) */
+        background-color: #E2231A !important; /* Lenovo Red */
+        color: #FFFFFF !important; /* White Arrow */
+        border: 2px solid #FFFFFF !important;
+        border-radius: 8px !important;
+        
+        /* 5. Force Size so it cannot be shrunk */
+        width: 40px !important;
+        height: 40px !important;
+        padding: 5px !important;
     }
-    
+
+    /* Hover Effect */
     [data-testid="stSidebarCollapsedControl"]:hover {
+        background-color: #FFFFFF !important;
+        color: #E2231A !important;
         transform: scale(1.1);
-        box-shadow: 0 0 10px #E2231A;
+        box-shadow: 0 0 15px rgba(226, 35, 26, 0.9);
     }
 
     /* --- INPUT FIELDS (TERMINAL STYLE) --- */
