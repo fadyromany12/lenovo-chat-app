@@ -121,11 +121,15 @@ st.markdown("""
     /* Timer Badges */
     .timer-badge {
         font-weight: bold;
-        padding: 6px 12px;
+        padding: 8px 16px;
         border-radius: 20px;
-        display: inline-block;
+        display: block;
+        text-align: center;
+        width: 100%;
+        margin-bottom: 15px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         animation: fadeIn 0.3s;
+        font-size: 1.1em;
     }
     .timer-ok { color: #4caf50; background: rgba(76, 175, 80, 0.15); border: 1px solid #4caf50; }
     .timer-warn { color: #ff9800; background: rgba(255, 152, 0, 0.15); border: 1px solid #ff9800; }
@@ -150,6 +154,7 @@ st.markdown("""
 
 # --- CONSTANTS & DICTIONARIES ---
 DB_FILE = "qa_database.db"
+SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" # Notification Sound
 
 # 1. SMART DICTIONARIES
 SENTIMENT_DICT = {
@@ -371,10 +376,19 @@ def send_msg(rid, sender, role, text):
     conn.commit()
     conn.close()
 
-def get_msgs(rid):
+def get_msgs(rid, limit=50):
     try:
         conn = sqlite3.connect(DB_FILE)
-        df = pd.read_sql_query("SELECT * FROM messages WHERE room_id = ? ORDER BY id ASC", conn, params=(rid,))
+        # Optimization: Fetch only last N messages to prevent lag
+        query = f"""
+            SELECT * FROM (
+                SELECT * FROM messages 
+                WHERE room_id = ? 
+                ORDER BY id DESC 
+                LIMIT {limit}
+            ) ORDER BY id ASC
+        """
+        df = pd.read_sql_query(query, conn, params=(rid,))
         conn.close()
         return df
     except: return pd.DataFrame()
@@ -544,14 +558,16 @@ def generate_export_text(rid, msgs, score, breakdown, crit):
     return "\n".join(lines)
 
 # --- UI FRAGMENTS (Modern Streamlit) ---
-@st.fragment(run_every=0.5)
-def render_live_chat(rid):
-    """Refreshes chat messages & checks timer every 0.5 seconds."""
+@st.fragment(run_every=1)
+def render_live_updates(rid):
+    """Refreshes chat messages & checks timer every 1 second.
+       Handles both Timer (Outside) and Messages (Inside Box)
+    """
     
-    # 1. Check Timer
+    # 1. Check Status
     status, diff, is_agent_turn = check_room_status(rid)
     
-    # Timer Display
+    # 2. Render Timer (VISIBLE OUTSIDE CHAT BOX)
     if status == 'Active':
         if is_agent_turn:
             if diff < 300: # 5 min
@@ -566,14 +582,43 @@ def render_live_chat(rid):
     elif status == 'Offline':
         st.markdown(f"<div class='timer-badge timer-warn'>💤 OFFLINE (Inactive > 10m)</div>", unsafe_allow_html=True)
 
-    # 2. Render Messages
-    msgs = get_msgs(rid)
-    if msgs.empty:
-        st.markdown("<div style='text-align: center; color: #666; margin-top: 50px;'>No messages yet. Start typing!</div>", unsafe_allow_html=True)
-    else:
-        for _, m in msgs.iterrows():
-            with st.chat_message(m['role'], avatar="👤" if m['role']=='Agent' else "👔"):
-                st.write(f"**{m['sender']}**: {m['text']}")
+    # 3. Render Messages inside Scrollable Container
+    with st.container(height=550):
+        msgs = get_msgs(rid, limit=50) # OPTIMIZATION: Limit to 50
+        
+        # --- NEW MESSAGE SOUND NOTIFICATION ---
+        if not msgs.empty:
+            latest_id = msgs['id'].max()
+            last_seen_key = f"last_msg_id_{rid}"
+            
+            # Init state if new room
+            if last_seen_key not in st.session_state:
+                st.session_state[last_seen_key] = latest_id
+            
+            # Detect new message
+            if latest_id > st.session_state[last_seen_key]:
+                # Get the new messages
+                new_msgs = msgs[msgs['id'] > st.session_state[last_seen_key]]
+                
+                # Play Sound IF the new message is NOT from me
+                current_user = st.session_state.get('user')
+                if any(new_msgs['sender'] != current_user):
+                    st.markdown(f"""
+                        <audio autoplay style="display:none;">
+                            <source src="{SOUND_URL}" type="audio/mpeg">
+                        </audio>
+                    """, unsafe_allow_html=True)
+                
+                # Update tracker
+                st.session_state[last_seen_key] = latest_id
+        # --------------------------------------
+
+        if msgs.empty:
+            st.markdown("<div style='text-align: center; color: #666; margin-top: 50px;'>No messages yet. Start typing!</div>", unsafe_allow_html=True)
+        else:
+            for _, m in msgs.iterrows():
+                with st.chat_message(m['role'], avatar="👤" if m['role']=='Agent' else "👔"):
+                    st.write(f"**{m['sender']}**: {m['text']}")
 
 # --- APP LAYOUT ---
 if 'user' not in st.session_state: st.session_state['user'] = None
@@ -651,9 +696,9 @@ else:
         
         with col_chat:
             st.subheader(f"Chat Room #{rid}")
-            container = st.container(height=600)
-            with container:
-                render_live_chat(rid)
+            
+            # CALL THE FRAGMENT (Handles Timer + Messages)
+            render_live_updates(rid)
             
             # Input outside fragment
             if prompt := st.chat_input("Message..."):
@@ -665,7 +710,7 @@ else:
             if st.session_state['role'] == 'Manager':
                 tab1, tab2 = st.tabs(["Grading", "Setup"])
                 with tab1:
-                    msgs = get_msgs(rid)
+                    msgs = get_msgs(rid, limit=1000) # Fetch full history for grading
                     sc = get_config('scorecard')
                     
                     # 1. RUN AUTO ANALYSIS
