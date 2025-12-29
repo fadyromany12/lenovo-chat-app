@@ -76,27 +76,33 @@ st.markdown("""
         border-color: #333;
     }
             
-            /* --- FIX: SIDEBAR COLLAPSE BUTTON --- */
+           /* --- FIX: SIDEBAR COLLAPSE BUTTON --- */
     [data-testid="stSidebarCollapsedControl"] {
+        /* 1. Force Visibility */
         display: block !important;
-        color: #E2231A !important; /* Lenovo Red */
-        background-color: rgba(0, 0, 0, 0.8) !important;
-        border: 1px solid #E2231A !important;
-        border-radius: 0px !important;
-        z-index: 1000001 !important; /* Increased Z-Index just in case */
-        transition: all 0.3s;
+        visibility: visible !important;
         
-        /* ADD THESE LINES TO LOCK POSITION */
-        position: fixed !important;
-        top: 15px !important;
-        left: 15px !important;
+        /* 2. Lock Position to Top-Left of the Screen */
+        position: fixed !important; 
+        top: 20px !important;
+        left: 20px !important;
+        
+        /* 3. Ensure it sits on top of your black background */
+        z-index: 999999 !important;
+        
+        /* 4. Styling to match your theme */
+        color: #E2231A !important;
+        background-color: #000000 !important;
+        border: 1px solid #E2231A !important;
+        border-radius: 50% !important; /* Make it a circle */
+        width: 40px;
+        height: 40px;
+        transition: transform 0.3s;
     }
     
     [data-testid="stSidebarCollapsedControl"]:hover {
-        box-shadow: 0 0 15px rgba(226, 35, 26, 0.8);
         transform: scale(1.1);
-        background-color: #E2231A !important;
-        color: #000 !important;
+        box-shadow: 0 0 10px #E2231A;
     }
 
     /* --- INPUT FIELDS (TERMINAL STYLE) --- */
