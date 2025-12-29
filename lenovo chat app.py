@@ -5,6 +5,7 @@ import datetime
 import pandas as pd
 import time
 import socket
+import re  # Added for Regex support
 
 # --- PAGE CONFIGURATION (Must be first) ---
 st.set_page_config(
@@ -66,54 +67,194 @@ st.markdown("""
     .grade-pass { background-color: #0a1f0a; border-color: #2e7d32; color: #a5d6a7; }
     .grade-fail { background-color: #1f0a0a; border-color: #c62828; color: #ef9a9a; }
     .grade-score { font-size: 2.5em; font-weight: bold; text-align: center; margin: 10px 0; }
+    
+    /* Timer Badges */
+    .timer-badge {
+        font-weight: bold;
+        padding: 5px 10px;
+        border-radius: 4px;
+        display: inline-block;
+    }
+    .timer-ok { color: #4caf50; background: rgba(76, 175, 80, 0.1); border: 1px solid #4caf50; }
+    .timer-warn { color: #ff9800; background: rgba(255, 152, 0, 0.1); border: 1px solid #ff9800; }
+    .timer-crit { color: #f44336; background: rgba(244, 67, 54, 0.1); border: 1px solid #f44336; }
 
 </style>
 """, unsafe_allow_html=True)
 
-# --- CONSTANTS ---
+# --- CONSTANTS & DICTIONARIES ---
 DB_FILE = "qa_database.db"
 
-DEFAULT_KEYWORDS = {
-    "greetings": ['hello', 'hi', 'welcome', 'good morning', 'good afternoon', 'my name is', 'assist you', 'chatting with'],
-    "empathy": ['sorry', 'apologize', 'understand', 'frustrating', 'regret', 'trouble', 'hear that', 'realize', 'inconvenience'],
-    "hold": ['hold', 'moment', 'check', 'bear with me', 'researching', 'consult', 'accessing'],
-    "discovery": ['?', 'what', 'how', 'need', 'looking for', 'usage', 'budget', 'preference', 'primary use'],
-    "closing": ['anything else', 'further', 'assist', 'help you with', 'questions'],
-    "prof_closing": ['thank', 'bye', 'wonderful day', 'take care', 'appreciate', 'choosing lenovo'],
-    "warranty": ['warranty', 'care', 'support', 'protection', 'repair', 'onsite', 'depot', 'adp'],
-    "csat": ['survey', 'feedback', 'rate', 'experience', 'satisfaction'],
-    "cx_critical": ['shut up', 'idiot', 'stupid', 'dumb', 'waste of time', 'hate you'],
-    "comp_critical": ['credit card', 'cvv', 'card number', 'expiry', 'password', 'ssn'],
-    "biz_critical": ['fake price', 'unauthorized discount']
+# 1. SMART DICTIONARIES
+SENTIMENT_DICT = {
+    'negative': {
+        'high': ['angry', 'upset', 'ridiculous', 'useless', 'manager', 'sue', 'lawyer', 'complaint', 'fail', 'waste', 'broken', 'worst', 'liar'],
+        'medium': ['slow', 'waiting', 'wrong', 'cancel', 'disappointed', 'hard', 'difficult', 'confusing']
+    },
+    'positive': {
+        'high': ['perfect', 'amazing', 'great', 'love', 'excellent', 'star', 'best'],
+        'medium': ['thanks', 'thank', 'helpful', 'appreciate', 'good', 'clear', 'solved', 'working']
+    }
 }
 
-DEFAULT_SCORECARD = [
-    {"id": "greet", "name": "Opening: Greet & Intro", "weight": 5.0, "keywords": "greetings"},
-    {"id": "empathy", "name": "Comm: Empathy", "weight": 10.0, "keywords": "empathy"},
-    {"id": "discovery", "name": "Sales: Discovery Questions", "weight": 15.0, "keywords": "discovery"},
-    {"id": "hold", "name": "Comm: Hold Etiquette", "weight": 5.0, "keywords": "hold"},
-    {"id": "warranty", "name": "Sales: Warranty Pitch", "weight": 10.0, "keywords": "warranty"},
-    {"id": "closing", "name": "Closing: Addressed Query", "weight": 5.0, "keywords": "closing"},
-    {"id": "end_prof", "name": "Closing: Professional End", "weight": 5.0, "keywords": "prof_closing"},
-    {"id": "csat", "name": "Closing: CSAT Request", "weight": 5.0, "keywords": "csat"}
-]
+SALES_TRIGGERS = {
+    'inquiry': ['price', 'cost', 'much', 'quote', 'specs', 'difference', 'better', 'recommend'],
+    'objection': ['expensive', 'cheaper', 'competitor', 'think about it', 'budget'],
+    'closing': ['buy', 'purchase', 'order', 'cart', 'card', 'payment', 'link', 'send me']
+}
 
-COACHING_TIPS = {
-    "greet": "Start with: 'Thank you for contacting Lenovo, my name is...'",
-    "empathy": "Say: 'I apologize for the inconvenience' or 'I understand your frustration'.",
-    "discovery": "Ask open-ended questions (Who, What, Where, Why) to understand needs.",
-    "hold": "Ask permission: 'May I place you on a brief hold while I check that?'",
-    "warranty": "Always offer Warranty Upgrades or Accidental Damage Protection.",
-    "closing": "Ask: 'Is there anything else I can assist you with today?'",
-    "end_prof": "End with: 'Thank you for choosing Lenovo. Have a wonderful day!'",
-    "csat": "Don't forget to invite the customer to take the satisfaction survey."
+# 2. ADVANCED PATTERN MATCHING
+INTENT_REGEX = {
+    'greeting': r'\b(hi|hello|morning|afternoon|welcome|assist)\b',
+    'closing': r'\b(thank|bye|goodbye|help you with|anything else|wonderful day)\b',
+    'question': r'\?|\b(what|how|when|why|where|can i|could you)\b',
+    'problem': r'\b(not working|broken|issue|error|damage|slow|fail|blue screen|boot|charge)\b',
+    'instruction': r'\b(click|link|visit|go to|steps|setting|select|press|type)\b',
+    'warranty': r'\b(warranty|repair|onsite|depot|coverage|entitlement)\b',
+    'sales_pitch': r'\b(features|benefits|design|performance|powerful|exclusive|offer|deal)\b',
+    'sales_close': r'\b(secure this|proceed|ready to|cart|checkout|order now)\b',
+    'empathy': r'\b(sorry|apologize|understand|regret|frustrating|bear with me)\b',
+    'confirmation': r'\b(yes|correct|ok|sure|right|will do|absolutely)\b'
+}
+
+# 3. KEYWORDS
+KEYWORDS = {
+    "greetings": [
+        'hello', 'hi', 'welcome', 'good morning', 'good afternoon', 'good evening', 
+        'thank you for contacting', 'thanks for contacting', 'how can i help', 'my name is',
+        'chatting with', 'pleasure to meet', 'reaching out', 'assist you today'
+    ],
+    "empathy": [
+        'sorry', 'apologize', 'understand', 'regret', 'unfortunate', 'frustrating', 
+        'bear with me', 'my apologies', 'sorry for the inconvenience', 'i assure you',
+        'totally understand', 'hear that', 'must be difficult', 'resolve this', 
+        'on the same page', 'make this right', 'trouble you are facing', 'i realize'
+    ],
+    "hold": [
+        'hold', 'moment', 'check', 'bear with me', 'allow me to check', 'look into this', 
+        'researching', 'brief hold', 'few minutes', 'consult', 'pull up', 'accessing', 
+        'give me a second', 'quick check', 'grabbing that info', 'double check'
+    ],
+    "warranty": [
+        'warranty', 'care', 'support', 'accessory', 'guarantee', 'repair', 'depot', 
+        'onsite', 'accidental', 'damage', 'protection', 'sealed battery', 'keep your drive', 
+        'adp', 'premier', 'upgrade warranty', 'warranty status', 'entitlement', 
+        'base warranty', 'smart performance', 'extended'
+    ],
+    # NEW: Sales Specific Products & Terms
+    "products": [
+        'thinkpad', 'legion', 'yoga', 'ideapad', 'thinkbook', 'loq', 'monitor', 'dock', 
+        'workstation', 'p series', 'x1 carbon', 't series', 'gaming', 'specs', 'specification',
+        'ram', 'ssd', 'processor', 'intel', 'amd', 'ryzen', 'nvidia', 'rtx', 'graphics',
+        'screen', 'display', 'oled', 'ips', 'battery life', 'weight'
+    ],
+    # NEW: Pricing & Closing Terms
+    "sales": [
+        'price', 'quote', 'cost', 'discount', 'offer', 'deal', 'cart', 'buy', 'purchase',
+        'order', 'checkout', 'finance', 'save', 'promotion', 'coupon', 'code', 'total',
+        'tax', 'shipping', 'delivery', 'stock', 'available', 'ready to ship'
+    ],
+    "accessories": [
+        'mouse', 'keyboard', 'monitor', 'dock', 'charger', 'adapter', 'headset', 'bag', 
+        'case', 'sleeve', 'cable', 'hub', 'webcam', 'stylus', 'pen', 'privacy filter', 
+        'backpack', 'stand', 'speaker', 'hard drive', 'ssd', 'ram', 'memory', 'power bank'
+    ],
+    "closing": [
+        'anything else', 'further', 'assist you', 'other questions', 'help you with',
+        'additional questions', 'support you', 'else i can do', 'proceed with', 
+        'ready to', 'secure this'
+    ],
+    "profClosing": [
+        'thank', 'bye', 'wonderful day', 'great day', 'rest of your day', 'take care', 
+        'goodbye', 'appreciate your business', 'thanks for choosing', 'thanks for shopping'
+    ],
+    "csat": [
+        'survey', 'feedback', 'short survey', 'rate', 'experience', 'email', 
+        'satisfaction', 'how i did', 'valued feedback', 'fill out'
+    ],
+    "discovery": [
+        '?', 'what', 'how', 'need', 'looking for', 'intend to use', 'purpose', 
+        'usage', 'budget', 'preference', 'screen size', 'processor', 'storage', 
+        'primary use', 'work', 'school', 'gaming', 'editing', 'business', 'student',
+        'heavy', 'light', 'travel', 'desktop'
+    ],
+    # NEW: Objection Handling / reassurance
+    "objection": [
+        'compare', 'difference', 'better', 'value', 'benefit', 'reason', 'why',
+        'advantage', 'competitor', 'cheaper', 'expensive', 'investment', 'quality',
+        'review', 'performance', 'durable', 'reliable'
+    ],
+    "cxCritical": [
+        'shut up', 'idiot', 'stupid', 'dumb', 'hate you', 'don\'t care', 'whatever', 
+        'ridiculous', 'liar', 'waste of time', 'bullshit', 'damn'
+    ],
+    "compCritical": [
+        'credit card', 'cvv', 'card number', 'expiry', 'social security', 'ssn', 
+        'password', 'login credentials', 'pwd'
+    ]
+}
+
+# 4. HIERARCHICAL SCORECARD (Flattened for DB compatibility but logic preserved)
+SCORECARD_STRUCTURE = {
+    "Opening": [
+        { "id": "greet", "text": "Opening: Greet & Intro", "weight": 2.0 },
+        { "id": "confirm", "text": "Opening: Confirm Name/Reason", "weight": 3.0 }
+    ],
+    "Communication": [
+        { "id": "listening", "text": "Comm: Active Listening", "weight": 5.0 },
+        { "id": "clear", "text": "Comm: Clear Language", "weight": 5.0 },
+        { "id": "empathy", "text": "Comm: Empathy", "weight": 5.0 },
+        { "id": "tone", "text": "Comm: Tone", "weight": 2.0 },
+        { "id": "hold", "text": "Comm: Hold Etiquette", "weight": 3.0 }
+    ],
+    "Solution/Sales": [
+        { "id": "discovery", "text": "Sales: Discovery Questions", "weight": 7.5 },
+        { "id": "product", "text": "Sales: Product Knowledge", "weight": 7.5 },
+        { "id": "solution", "text": "Sales: Right Solution", "weight": 7.5 },
+        { "id": "objection", "text": "Sales: Objection Handling", "weight": 7.5 },
+        { "id": "warranty", "text": "Sales: Warranty/Accessories", "weight": 15.0 }
+    ],
+    "Process": [
+        { "id": "next_steps", "text": "Process: Next Steps", "weight": 5.0 },
+        { "id": "compliance", "text": "Process: Compliance", "weight": 10.0 }
+    ],
+    "Closing": [
+        { "id": "transfer", "text": "Closing: Transfer", "weight": 2.0 },
+        { "id": "disposition", "text": "Closing: Disposition", "weight": 4.0 },
+        { "id": "addressed", "text": "Closing: Query Addressed", "weight": 2.0 },
+        { "id": "end_prof", "text": "Closing: Professional End", "weight": 2.0 },
+        { "id": "csat", "text": "Closing: CSAT Statement", "weight": 5.0 }
+    ]
+}
+
+# Flatten for DB
+DEFAULT_SCORECARD = []
+for cat, items in SCORECARD_STRUCTURE.items():
+    for item in items:
+        # Map keyword keys based on ID for simplicity in grading engine
+        kw = item['id'] if item['id'] in KEYWORDS else ""
+        if item['id'] == 'end_prof': kw = 'profClosing'
+        if item['id'] == 'next_steps': kw = 'closing' # Fallback
+        
+        DEFAULT_SCORECARD.append({
+            "id": item['id'],
+            "name": item['text'],
+            "weight": item['weight'],
+            "keywords": kw,
+            "category": cat
+        })
+
+CRITICAL_DEFINITIONS = {
+    "CX Critical": ["Rude attitude or sarcasm.", "Providing misleading information.", "Chat Dumping."],
+    "Business Critical": ["Stacking discounts.", "Unauthorized prices.", "Misrepresenting specs."],
+    "Compliance Critical": ["PCI DSS: Asking for Credit Card info.", "GDPR: Sharing personal data."]
 }
 
 # --- DATABASE ---
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS rooms (id INTEGER PRIMARY KEY AUTOINCREMENT, host TEXT, agent TEXT, status TEXT, created_at TIMESTAMP)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS rooms (id INTEGER PRIMARY KEY AUTOINCREMENT, host TEXT, agent TEXT, status TEXT, created_at TIMESTAMP, last_activity TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, room_id INTEGER, sender TEXT, role TEXT, text TEXT, timestamp TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)''')
     c.execute("SELECT * FROM config WHERE key='scorecard'")
@@ -133,7 +274,8 @@ def get_rooms():
 def create_room(host):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("INSERT INTO rooms (host, agent, status, created_at) VALUES (?, ?, ?, ?)", (host, 'Waiting...', 'Active', datetime.datetime.now()))
+    now = datetime.datetime.now()
+    c.execute("INSERT INTO rooms (host, agent, status, created_at, last_activity) VALUES (?, ?, ?, ?, ?)", (host, 'Waiting...', 'Active', now, now))
     rid = c.lastrowid
     conn.commit()
     conn.close()
@@ -149,7 +291,9 @@ def join_room(rid, agent):
 def send_msg(rid, sender, role, text):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("INSERT INTO messages (room_id, sender, role, text, timestamp) VALUES (?, ?, ?, ?, ?)", (rid, sender, role, text, datetime.datetime.now()))
+    now = datetime.datetime.now()
+    c.execute("INSERT INTO messages (room_id, sender, role, text, timestamp) VALUES (?, ?, ?, ?, ?)", (rid, sender, role, text, now))
+    c.execute("UPDATE rooms SET last_activity = ? WHERE id = ?", (now, rid))
     conn.commit()
     conn.close()
 
@@ -185,49 +329,105 @@ def get_ip():
         return ip
     except: return "127.0.0.1"
 
+def check_room_status(rid):
+    """Checks for Expiry (30s) and Offline (5min)"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        row = conn.execute("SELECT status, last_activity FROM rooms WHERE id = ?", (rid,)).fetchone()
+        conn.close()
+        
+        if not row: return "Unknown", 0
+        
+        status, last_act_str = row
+        if not last_act_str: return status, 0
+
+        # Handle various timestamp formats safely
+        try:
+            last_act = pd.to_datetime(last_act_str).to_pydatetime()
+        except:
+            last_act = datetime.datetime.now()
+
+        now = datetime.datetime.now()
+        diff = (now - last_act).total_seconds()
+
+        # Logic
+        new_status = status
+        if status == 'Active':
+            if diff > 300: # 5 mins
+                new_status = 'Offline'
+            elif diff > 30: # 30 sec
+                new_status = 'Expired'
+            
+            if new_status != status:
+                conn = sqlite3.connect(DB_FILE)
+                conn.execute("UPDATE rooms SET status = ? WHERE id = ?", (new_status, rid))
+                conn.commit()
+                conn.close()
+        
+        return new_status, diff
+    except Exception as e:
+        print(e)
+        return "Error", 0
+
 # --- GRADING ENGINE ---
 def grade_chat(msgs, sc):
     if msgs.empty: return 0, {}, None, []
     
-    agent_text = " ".join(msgs[msgs['role']=='Agent']['text'].astype(str).str.lower().tolist())
+    agent_msgs = msgs[msgs['role']=='Agent']
+    agent_text = " ".join(agent_msgs['text'].astype(str).str.lower().tolist())
     
     score, max_s = 0, 0
     breakdown = {}
     crit = None
     tips = []
 
-    # Criticals
-    for k in ['cx_critical', 'comp_critical', 'biz_critical']:
-        for w in DEFAULT_KEYWORDS[k]:
+    # 1. Criticals
+    for kw_list in [KEYWORDS['cxCritical'], KEYWORDS['compCritical']]:
+        for w in kw_list:
             if w in agent_text:
                 crit = f"Critical Fail: Found '{w}'"
-                if k in COACHING_TIPS: tips.append(COACHING_TIPS[k])
                 break
         if crit: break
     
     if not crit:
+        # 2. Scorecard Logic with Regex & Keywords
         for item in sc:
             w = float(item['weight'])
             max_s += w
             passed = False
-            kw_key = item.get('keywords', '')
-            kws = DEFAULT_KEYWORDS.get(kw_key, [])
             
-            if item['id'] == 'discovery':
-                if agent_text.count('?') >= 2 or sum(1 for k in kws if k in agent_text) >= 2: passed = True
-            elif item['id'] == 'hold':
-                passed = True # Assume N/A or Pass
-            elif kws:
-                if any(k in agent_text for k in kws): passed = True
+            cid = item['id']
+            
+            # Smart Logic
+            if cid == 'greet':
+                if re.search(INTENT_REGEX['greeting'], agent_text): passed = True
+            elif cid == 'discovery':
+                if re.search(INTENT_REGEX['question'], agent_text) or len(re.findall(r'\?', agent_text)) >= 2: passed = True
+            elif cid == 'warranty':
+                if re.search(INTENT_REGEX['warranty'], agent_text): passed = True
+            elif cid == 'empathy':
+                if re.search(INTENT_REGEX['empathy'], agent_text): passed = True
+            elif cid == 'end_prof':
+                if re.search(INTENT_REGEX['closing'], agent_text): passed = True
+            elif cid == 'product':
+                # Check for product keywords
+                if any(p in agent_text for p in KEYWORDS['products']): passed = True
+            elif cid == 'objection':
+                # Check for objection handling words
+                if any(o in agent_text for o in KEYWORDS['objection']): passed = True
             else:
-                passed = True # Default pass for subjective
+                # Fallback to simple keyword match if provided
+                kw_key = item.get('keywords', '')
+                kws = KEYWORDS.get(kw_key, [])
+                if kws and any(k in agent_text for k in kws): passed = True
+                elif not kws: passed = True # Default pass for subjective if no keywords
             
             if passed:
                 score += w
                 breakdown[item['name']] = "PASS"
             else:
                 breakdown[item['name']] = "FAIL"
-                if item['id'] in COACHING_TIPS: tips.append(COACHING_TIPS[item['id']])
+                tips.append(f"{item['name']}: Try using words like {', '.join(KEYWORDS.get(cid, ['...'])[:3])}")
 
     final = 0 if crit else int((score/max_s)*100) if max_s > 0 else 0
     return final, breakdown, crit, tips
@@ -235,7 +435,23 @@ def grade_chat(msgs, sc):
 # --- UI FRAGMENTS (Modern Streamlit) ---
 @st.fragment(run_every=0.5)
 def render_live_chat(rid):
-    """Refreshes chat messages every 0.5 seconds automatically."""
+    """Refreshes chat messages & checks timer every 0.5 seconds."""
+    
+    # 1. Check Timer
+    status, diff = check_room_status(rid)
+    
+    # Timer Display
+    if status == 'Active':
+        if diff < 30:
+            st.markdown(f"<div class='timer-badge timer-ok'>⏱️ Reply Time: {int(diff)}s / 30s</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div class='timer-badge timer-crit'>⚠️ OVERTIME: {int(diff)}s</div>", unsafe_allow_html=True)
+    elif status == 'Expired':
+        st.markdown(f"<div class='timer-badge timer-crit'>💀 CHAT EXPIRED (No Reply > 30s)</div>", unsafe_allow_html=True)
+    elif status == 'Offline':
+        st.markdown(f"<div class='timer-badge timer-warn'>💤 OFFLINE (Inactive > 5m)</div>", unsafe_allow_html=True)
+
+    # 2. Render Messages
     msgs = get_msgs(rid)
     if msgs.empty:
         st.markdown("<div style='text-align: center; color: #666; margin-top: 50px;'>No messages yet. Start typing!</div>", unsafe_allow_html=True)
@@ -271,7 +487,12 @@ with st.sidebar:
         rooms = get_rooms()
         if not rooms.empty:
             for _, r in rooms.iterrows():
-                label = f"#{r['id']} {r['host']}"
+                # Status Icon Logic
+                icon = "🟢"
+                if r['status'] == 'Expired': icon = "💀"
+                elif r['status'] == 'Offline': icon = "💤"
+                
+                label = f"{icon} #{r['id']} {r['host']}"
                 if r['agent'] != 'Waiting...': label += f" vs {r['agent']}"
                 if st.button(label, key=f"r_{r['id']}", use_container_width=True):
                     st.session_state['active_room'] = r['id']
@@ -304,7 +525,7 @@ else:
             with container:
                 render_live_chat(rid)
             
-            # Input outside fragment to avoid focus loss
+            # Input outside fragment
             if prompt := st.chat_input("Message..."):
                 send_msg(rid, st.session_state['user'], st.session_state['role'], prompt)
                 st.rerun()
