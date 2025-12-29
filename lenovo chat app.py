@@ -7,6 +7,13 @@ import time
 import socket
 import re
 
+# Try to import FPDF for PDF generation, handle if missing
+try:
+    from fpdf import FPDF
+    HAS_FPDF = True
+except ImportError:
+    HAS_FPDF = False
+
 # --- PAGE CONFIGURATION (Must be first) ---
 st.set_page_config(
     page_title="Lenovo Chat App", 
@@ -172,25 +179,22 @@ st.markdown("""
         animation: pulse-green 2s infinite;
         font-style: italic;
     }
-
-    /* --- ANIMATIONS --- */
-    @keyframes slideIn {
-        from { opacity: 0; transform: translateX(-20px); }
-        to { opacity: 1; transform: translateX(0); }
+    
+    /* --- SCENARIO CARD --- */
+    .scenario-card {
+        background: rgba(226, 35, 26, 0.1);
+        border: 1px solid #E2231A;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 4px;
+        color: #fff;
     }
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes pulse {
-        0% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.4); }
-        70% { box-shadow: 0 0 0 10px rgba(255, 59, 48, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0); }
-    }
-    @keyframes pulse-green {
-        0% { opacity: 0.5; box-shadow: 0 0 0 0 rgba(0, 255, 204, 0.2); }
-        50% { opacity: 1; box-shadow: 0 0 10px 0 rgba(0, 255, 204, 0.4); }
-        100% { opacity: 0.5; box-shadow: 0 0 0 0 rgba(0, 255, 204, 0.2); }
+    .scenario-title {
+        color: #E2231A;
+        font-family: 'Rajdhani', sans-serif;
+        font-weight: bold;
+        letter-spacing: 2px;
+        margin-bottom: 5px;
     }
 
     /* Scrollbar */
@@ -374,12 +378,19 @@ CRITICAL_DEFINITIONS = {
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS rooms (id INTEGER PRIMARY KEY AUTOINCREMENT, host TEXT, agent TEXT, status TEXT, created_at TIMESTAMP, last_activity TIMESTAMP)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS rooms (id INTEGER PRIMARY KEY AUTOINCREMENT, host TEXT, agent TEXT, status TEXT, created_at TIMESTAMP, last_activity TIMESTAMP, scenario TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, room_id INTEGER, sender TEXT, role TEXT, text TEXT, timestamp TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)''')
     c.execute("SELECT * FROM config WHERE key='scorecard'")
     if not c.fetchone():
         c.execute("INSERT INTO config (key, value) VALUES (?, ?)", ('scorecard', json.dumps(DEFAULT_SCORECARD)))
+    
+    # MIGRATION: Ensure 'scenario' column exists for older DB files
+    try:
+        c.execute("ALTER TABLE rooms ADD COLUMN scenario TEXT")
+    except:
+        pass # Column likely exists
+
     conn.commit()
     conn.close()
 
@@ -391,11 +402,12 @@ def get_rooms():
         return df
     except: return pd.DataFrame()
 
-def create_room(host):
+def create_room(host, scenario=None):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     now = datetime.datetime.now()
-    c.execute("INSERT INTO rooms (host, agent, status, created_at, last_activity) VALUES (?, ?, ?, ?, ?)", (host, 'Waiting...', 'Active', now, now))
+    sc_json = json.dumps(scenario) if scenario else None
+    c.execute("INSERT INTO rooms (host, agent, status, created_at, last_activity, scenario) VALUES (?, ?, ?, ?, ?, ?)", (host, 'Waiting...', 'Active', now, now, sc_json))
     rid = c.lastrowid
     conn.commit()
     conn.close()
@@ -442,6 +454,14 @@ def get_msgs(rid, limit=50):
         conn.close()
         return df
     except: return pd.DataFrame()
+
+def get_room_details(rid):
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        row = conn.execute("SELECT scenario FROM rooms WHERE id = ?", (rid,)).fetchone()
+        conn.close()
+        return json.loads(row[0]) if row and row[0] else None
+    except: return None
 
 def get_config(key):
     conn = sqlite3.connect(DB_FILE)
@@ -522,6 +542,110 @@ def check_room_status(rid):
         print(e)
         return "Error", 0, False
 
+# --- SENTIMENT ENGINE ---
+def calculate_sentiment(text):
+    """Returns a score between 0 (Negative) and 100 (Positive). Starts at 50."""
+    score = 50
+    lower_text = text.lower()
+    
+    # Check Negative
+    for w in SENTIMENT_DICT['negative']['high']:
+        if w in lower_text: score -= 15
+    for w in SENTIMENT_DICT['negative']['medium']:
+        if w in lower_text: score -= 5
+        
+    # Check Positive
+    for w in SENTIMENT_DICT['positive']['high']:
+        if w in lower_text: score += 15
+    for w in SENTIMENT_DICT['positive']['medium']:
+        if w in lower_text: score += 5
+        
+    return max(0, min(100, score))
+
+def analyze_conversation_sentiment(msgs):
+    """Analyzes only the CUSTOMER/MANAGER messages to gauge mood."""
+    if msgs.empty: return 50
+    # Filter for Customer/Manager messages (assuming Role != Agent)
+    cust_msgs = msgs[msgs['role'] != 'Agent']
+    if cust_msgs.empty: return 50
+    
+    # Analyze last 5 messages for "Live" feel
+    recent_msgs = cust_msgs.tail(5)
+    total_score = 0
+    for t in recent_msgs['text']:
+        total_score += calculate_sentiment(str(t))
+    
+    return int(total_score / len(recent_msgs))
+
+# --- PDF GENERATION ---
+def generate_pdf_report(rid, msgs, score, breakdown, crit, scenario):
+    if not HAS_FPDF:
+        return None
+        
+    class PDF(FPDF):
+        def header(self):
+            self.set_font('Arial', 'B', 15)
+            self.cell(0, 10, f'Lenovo Chat Simulation Report - Room #{rid}', 0, 1, 'C')
+            self.ln(5)
+            
+        def footer(self):
+            self.set_y(-15)
+            self.set_font('Arial', 'I', 8)
+            self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
+
+    pdf = PDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    
+    # 1. Header Info
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", 0, 1)
+    
+    if scenario:
+        pdf.cell(0, 10, f"Scenario: {scenario.get('name', 'N/A')} - {scenario.get('product', 'N/A')}", 0, 1)
+        pdf.set_font("Arial", 'I', 10)
+        pdf.multi_cell(0, 5, f"Issue: {scenario.get('issue', 'N/A')}")
+        pdf.ln(5)
+
+    # 2. Score
+    pdf.set_font("Arial", 'B', 14)
+    if crit:
+        pdf.set_text_color(255, 0, 0)
+        pdf.cell(0, 10, f"FINAL SCORE: 0% (CRITICAL FAIL)", 0, 1)
+        pdf.set_font("Arial", size=10)
+        pdf.cell(0, 10, f"Reason: {crit}", 0, 1)
+    else:
+        color = (0, 200, 0) if score >= 85 else (200, 0, 0)
+        pdf.set_text_color(*color)
+        pdf.cell(0, 10, f"FINAL SCORE: {score}%", 0, 1)
+    
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(5)
+    
+    # 3. Grading
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, "Grading Breakdown:", 0, 1)
+    pdf.set_font("Arial", size=10)
+    for k, v in breakdown.items():
+        pdf.cell(0, 6, f"{k}: {v}", 0, 1)
+    
+    pdf.ln(10)
+    
+    # 4. Transcript
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, "Chat Transcript:", 0, 1)
+    pdf.set_font("Courier", size=9)
+    
+    for _, m in msgs.iterrows():
+        prefix = "AGENT: " if m['role'] == 'Agent' else f"{m['sender'].upper()}: "
+        # Clean text
+        clean_text = m['text'].encode('latin-1', 'replace').decode('latin-1')
+        pdf.multi_cell(0, 5, f"[{m['timestamp']}] {prefix}{clean_text}")
+        pdf.ln(1)
+        
+    return pdf.output(dest='S').encode('latin-1')
+
+
 # --- GRADING ENGINE ---
 def auto_grade_chat(msgs, sc):
     """Initial Auto-Grading using Keywords/Regex"""
@@ -590,12 +714,15 @@ def calculate_final_score(breakdown, crit, sc):
             
     return int((score / max_score) * 100) if max_score > 0 else 0
 
-def generate_export_text(rid, msgs, score, breakdown, crit):
+def generate_export_text(rid, msgs, score, breakdown, crit, scenario):
     """Generates a text report"""
     lines = []
     lines.append(f"LENOVO CHAT REPORT - ROOM #{rid}")
     lines.append("="*40)
     lines.append(f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    if scenario:
+        lines.append(f"SCENARIO: {scenario.get('name')} | {scenario.get('product')}")
+        lines.append(f"ISSUE: {scenario.get('issue')}")
     lines.append(f"Final Score: {score}%")
     if crit: lines.append(f"CRITICAL FAIL: {crit}")
     lines.append("\n--- CHAT TRANSCRIPT ---")
@@ -644,6 +771,20 @@ def render_live_updates(rid):
     with st.container(height=550):
         msgs = get_msgs(rid, limit=50) 
         
+        # --- SCENARIO DISPLAY (AGENT VIEW) ---
+        if user_role == 'Agent':
+             sc_data = get_room_details(rid)
+             if sc_data:
+                 st.markdown(f"""
+                 <div class='scenario-card'>
+                    <div class='scenario-title'>🎯 MISSION BRIEF</div>
+                    <b>CUSTOMER:</b> {sc_data.get('name', 'N/A')}<br>
+                    <b>DEVICE:</b> {sc_data.get('product', 'N/A')}<br>
+                    <b>ISSUE:</b> {sc_data.get('issue', 'N/A')}
+                 </div>
+                 """, unsafe_allow_html=True)
+        # -------------------------------------
+        
         # --- NEW MESSAGE SOUND NOTIFICATION ---
         if not msgs.empty:
             latest_id = msgs['id'].max()
@@ -659,8 +800,6 @@ def render_live_updates(rid):
                 current_user = st.session_state.get('user')
                 
                 # Sound Logic:
-                # If msg from OTHER person -> Play 'Notification'
-                # If msg from ME -> Play 'Sent' (Optional, hard to do nicely, focusing on notification)
                 if any(new_msgs['sender'] != current_user):
                     st.markdown(f"""
                         <audio autoplay style="display:none;">
@@ -676,8 +815,14 @@ def render_live_updates(rid):
             st.markdown("<div style='text-align: center; color: #666; margin-top: 50px; font-style: italic;'>DECRYPTION COMPLETE. NO MESSAGES FOUND.<br>INITIATE PROTOCOL...</div>", unsafe_allow_html=True)
         else:
             for _, m in msgs.iterrows():
-                with st.chat_message(m['role'], avatar="👤" if m['role']=='Agent' else "👔"):
-                    st.write(f"**{m['sender']}**: {m['text']}")
+                # Handle Image "Simulation"
+                if "[ATTACHMENT SENT]" in m['text']:
+                    with st.chat_message(m['role'], avatar="👤" if m['role']=='Agent' else "👔"):
+                        st.markdown(f"**{m['sender']}** sent an attachment:")
+                        st.image("https://placehold.co/600x400/1a1a1a/e2231a?text=BROKEN+DEVICE+IMAGE", caption="attachment.jpg")
+                else:
+                    with st.chat_message(m['role'], avatar="👤" if m['role']=='Agent' else "👔"):
+                        st.write(f"**{m['sender']}**: {m['text']}")
 
 # --- APP LAYOUT ---
 if 'user' not in st.session_state: st.session_state['user'] = None
@@ -692,6 +837,27 @@ with st.sidebar:
     if st.session_state['user']:
         st.markdown(f"<h3>👤 {st.session_state['user']}</h3>", unsafe_allow_html=True)
         st.caption(f"ACCESS LEVEL: {st.session_state['role'].upper()}")
+        
+        # --- NEW: Live Sentiment Meter ---
+        if st.session_state.get('active_room'):
+            st.markdown("---")
+            st.markdown("<h3>📊 LIVE SENTIMENT</h3>", unsafe_allow_html=True)
+            # Need to fetch msgs here or pass it? Better to fetch light version
+            current_msgs = get_msgs(st.session_state['active_room'], 20)
+            sentiment_score = analyze_conversation_sentiment(current_msgs)
+            
+            # Color logic
+            bar_color = "red"
+            if sentiment_score > 40: bar_color = "yellow"
+            if sentiment_score > 70: bar_color = "#00ffcc"
+            
+            st.caption(f"CUSTOMER MOOD: {sentiment_score}/100")
+            st.markdown(f"""
+            <div style="background-color: #333; width: 100%; height: 10px; border-radius: 5px;">
+                <div style="background-color: {bar_color}; width: {sentiment_score}%; height: 100%; border-radius: 5px; transition: width 0.5s;"></div>
+            </div>
+            """, unsafe_allow_html=True)
+        # ---------------------------------
         
         # --- NEW: Quick Actions for Agent ---
         if st.session_state['role'] == "Agent" and st.session_state.get('active_room'):
@@ -722,11 +888,19 @@ with st.sidebar:
         st.markdown("<h3>ACTIVE SIMULATIONS</h3>", unsafe_allow_html=True)
         
         if st.session_state['role'] == "Manager":
-            if st.button("➕ INITIATE NEW SIM", use_container_width=True):
-                rid = create_room(st.session_state['user'])
-                st.session_state['active_room'] = rid
-                st.session_state['manual_grading'] = {} 
-                st.rerun()
+            # --- NEW: Scenario Injection ---
+            with st.expander("➕ INITIATE NEW SIM", expanded=False):
+                with st.form("new_sim_form"):
+                    cust_name = st.text_input("Customer Name", "John Doe")
+                    prod_model = st.selectbox("Product", ["ThinkPad X1", "Legion 5 Pro", "Yoga 9i", "IdeaPad 3"])
+                    issue_desc = st.text_area("Issue Description", "Blue Screen of Death when launching games.")
+                    if st.form_submit_button("LAUNCH SIMULATION"):
+                        scenario = {"name": cust_name, "product": prod_model, "issue": issue_desc}
+                        rid = create_room(st.session_state['user'], scenario)
+                        st.session_state['active_room'] = rid
+                        st.session_state['manual_grading'] = {} 
+                        st.rerun()
+            # -------------------------------
         
         if st.button("🔄 REFRESH FEED", use_container_width=True): st.rerun()
         
@@ -793,6 +967,14 @@ else:
         
         with col_tools:
             st.markdown("<h2>QA TOOLS</h2>", unsafe_allow_html=True)
+            
+            # --- NEW: FILE ATTACHMENT SIMULATION (FOR CUSTOMER/MANAGER) ---
+            if st.session_state['role'] == 'Manager':
+                if st.button("📎 SIMULATE ATTACHMENT", use_container_width=True):
+                    send_msg(rid, st.session_state['user'], st.session_state['role'], "[ATTACHMENT SENT]: broken_screen.jpg")
+                    st.rerun()
+            # --------------------------------------------------------------
+
             if st.session_state['role'] == 'Manager':
                 tab1, tab2 = st.tabs(["GRADING", "CONFIG"])
                 with tab1:
@@ -822,7 +1004,8 @@ else:
                         # NEW: Manager Clear Chat
                         if st.button("🗑️ CLEAR CHAT HISTORY", use_container_width=True):
                              delete_room(rid)
-                             create_room(st.session_state['user']) # Recreate same room
+                             scenario_data = get_room_details(rid)
+                             create_room(st.session_state['user'], scenario_data) # Recreate same room
                              st.rerun()
 
                         st.write("---")
@@ -845,14 +1028,30 @@ else:
                                 st.rerun() 
 
                         st.write("---")
-                        report_text = generate_export_text(rid, msgs, current_score, st.session_state['manual_grading'], crit)
-                        st.download_button(
-                            label="📥 EXPORT REPORT DATA",
-                            data=report_text,
-                            file_name=f"Lenovo_Chat_Report_{rid}.txt",
-                            mime="text/plain",
-                            use_container_width=True
-                        )
+                        
+                        # --- PDF EXPORT LOGIC ---
+                        sc_data = get_room_details(rid)
+                        if HAS_FPDF:
+                            pdf_bytes = generate_pdf_report(rid, msgs, current_score, st.session_state['manual_grading'], crit, sc_data)
+                            st.download_button(
+                                label="📄 EXPORT PDF REPORT",
+                                data=pdf_bytes,
+                                file_name=f"Lenovo_Chat_Report_{rid}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True
+                            )
+                        else:
+                             # Fallback to text
+                            report_text = generate_export_text(rid, msgs, current_score, st.session_state['manual_grading'], crit, sc_data)
+                            st.warning("Install 'fpdf' for PDF exports. Using TXT fallback.")
+                            st.download_button(
+                                label="📥 EXPORT TXT REPORT",
+                                data=report_text,
+                                file_name=f"Lenovo_Chat_Report_{rid}.txt",
+                                mime="text/plain",
+                                use_container_width=True
+                            )
+                        # -------------------------
 
                     else:
                         st.info("Awaiting Analysis Command...")
