@@ -799,13 +799,14 @@ def render_live_updates(rid):
                 new_msgs = msgs[msgs['id'] > st.session_state[last_seen_key]]
                 current_user = st.session_state.get('user')
                 
-                # Sound Logic:
-                if any(new_msgs['sender'] != current_user):
-                    st.markdown(f"""
-                        <audio autoplay style="display:none;">
-                            <source src="{SOUND_URL}" type="audio/mpeg">
-                        </audio>
-                    """, unsafe_allow_html=True)
+                # Sound Logic: Only play if NOT muted
+                if not st.session_state.get('mute_sounds', False):
+                    if any(new_msgs['sender'] != current_user):
+                        st.markdown(f"""
+                            <audio autoplay style="display:none;">
+                                <source src="{SOUND_URL}" type="audio/mpeg">
+                            </audio>
+                        """, unsafe_allow_html=True)
                 
                 # Update tracker
                 st.session_state[last_seen_key] = latest_id
@@ -834,6 +835,9 @@ with st.sidebar:
     st.caption(f"SECURE LINK: http://{get_ip()}:8501")
     st.markdown("---")
     
+    # NEW: Mute Toggle
+    st.checkbox("🔕 MUTE SOUNDS", key="mute_sounds", help="Disable typing and notification sounds")
+
     if st.session_state['user']:
         st.markdown(f"<h3>👤 {st.session_state['user']}</h3>", unsafe_allow_html=True)
         st.caption(f"ACCESS LEVEL: {st.session_state['role'].upper()}")
@@ -964,6 +968,29 @@ else:
             if prompt := st.chat_input("TRANSMIT MESSAGE..."):
                 send_msg(rid, st.session_state['user'], st.session_state['role'], prompt)
                 st.rerun()
+            
+            # NEW: TYPING SOUNDS JS INJECTION
+            mute_str = "true" if st.session_state.get('mute_sounds', False) else "false"
+            st.markdown(f"""
+            <script>
+                // Initialize sound only once if possible, or update mute state
+                var typingAudio = new Audio("https://assets.mixkit.co/active_storage/sfx/2364/2364-preview.mp3"); // Clicky sound
+                window.muteTyping = {mute_str};
+                
+                if (!window.typingListenerAttached) {{
+                    document.addEventListener('keydown', function(e) {{
+                        // Check if typing in text field and not muted
+                        if ((e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') && !window.muteTyping) {{
+                            // Clone to allow overlapping sounds (fast typing)
+                            var sound = typingAudio.cloneNode();
+                            sound.volume = 0.1; // Subtle volume
+                            sound.play().catch(e => console.log(e));
+                        }}
+                    }});
+                    window.typingListenerAttached = true;
+                }}
+            </script>
+            """, unsafe_allow_html=True)
         
         with col_tools:
             st.markdown("<h2>QA TOOLS</h2>", unsafe_allow_html=True)
