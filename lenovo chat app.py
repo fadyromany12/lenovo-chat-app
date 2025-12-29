@@ -14,88 +14,87 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CUSTOM CSS STYLING ---
+# --- CUSTOM CSS STYLING (FORCED DARK MODE) ---
 st.markdown("""
 <style>
-    /* Main Background & Font */
+    /* Global Dark Theme */
     .stApp {
-        background-color: #f8f9fa;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #121212;
+        color: #E0E0E0;
     }
     
     /* Sidebar Styling */
-    [data-testid="stSidebar"] {
-        background-color: #1e1e1e;
-        color: white;
+    section[data-testid="stSidebar"] {
+        background-color: #000000;
+        border-right: 1px solid #333;
     }
-    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
-        color: #E2231A !important; /* Lenovo Red */
+    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
+        color: #E2231A !important;
     }
-    [data-testid="stSidebar"] p, [data-testid="stSidebar"] span {
-        color: #cccccc;
+    section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] span {
+        color: #bbbbbb;
     }
     
-    /* Buttons */
+    /* Input Fields */
+    .stTextInput > div > div > input {
+        background-color: #2D2D2D;
+        color: white;
+        border: 1px solid #444;
+    }
+    .stSelectbox > div > div > div {
+        background-color: #2D2D2D;
+        color: white;
+    }
+    
+    /* Primary Buttons (Lenovo Red) */
     .stButton > button {
         background-color: #E2231A;
         color: white;
-        border-radius: 4px;
         border: none;
-        font-weight: bold;
-        transition: all 0.3s ease;
+        border-radius: 4px;
+        font-weight: 600;
+        transition: background 0.2s;
     }
     .stButton > button:hover {
-        background-color: #b91b14;
-        color: white;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        background-color: #ff3b30;
+        box-shadow: 0 0 10px rgba(226, 35, 26, 0.4);
     }
     
-    /* Metrics */
-    [data-testid="stMetricValue"] {
-        font-size: 2.5rem !important;
-        color: #333;
-    }
-    
-    /* Chat Message Bubbles */
+    /* Chat Interface */
     .stChatMessage {
-        background-color: white;
-        border: 1px solid #eee;
-        border-radius: 10px;
-        padding: 10px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        background-color: #1E1E1E;
+        border: 1px solid #333;
+        border-radius: 8px;
     }
-    [data-testid="stChatMessageAvatar"] {
+    .stChatMessage [data-testid="stChatMessageContent"] {
+        color: #E0E0E0;
+    }
+    div[data-testid="stChatMessageAvatar"] {
         background-color: #E2231A;
-        color: white;
     }
 
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 10px;
+    /* Metrics */
+    div[data-testid="stMetricValue"] {
+        color: #ffffff !important;
     }
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        white-space: pre-wrap;
-        background-color: white;
+    
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] button {
+        background-color: #1E1E1E;
+        color: #888;
         border-radius: 4px;
-        color: #333;
-        border: 1px solid #ddd;
+        margin-right: 5px;
     }
     .stTabs [aria-selected="true"] {
         background-color: #E2231A !important;
         color: white !important;
-        border: none;
     }
-    
-    /* Headers */
-    h1, h2, h3 {
-        color: #333;
-        font-weight: 600;
-    }
-    
-    /* Custom Alerts */
-    .success-box { padding: 10px; background-color: #d4edda; color: #155724; border-radius: 5px; border-left: 5px solid #28a745; margin-bottom: 5px;}
-    .fail-box { padding: 10px; background-color: #f8d7da; color: #721c24; border-radius: 5px; border-left: 5px solid #dc3545; margin-bottom: 5px;}
+
+    /* Custom Alert Boxes */
+    .success-box { padding: 12px; background-color: #0f3d24; color: #81c784; border-left: 4px solid #2e7d32; margin-bottom: 8px; border-radius: 4px; }
+    .fail-box { padding: 12px; background-color: #3d0f0f; color: #e57373; border-left: 4px solid #c62828; margin-bottom: 8px; border-radius: 4px; }
+    .tip-box { padding: 12px; background-color: #3e2723; color: #ffcc80; border-left: 4px solid #f57c00; margin-bottom: 8px; border-radius: 4px; }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -365,7 +364,7 @@ with st.sidebar:
     if st.session_state['user']:
         st.subheader(f"👤 {st.session_state['user']}")
         st.caption(f"Role: {st.session_state['role']}")
-        if st.button("Logout", use_container_width=True):
+        if st.button("Logout", key="logout_btn", use_container_width=True):
             st.session_state['user'] = None
             st.rerun()
         
@@ -373,10 +372,14 @@ with st.sidebar:
         st.subheader("Simulations")
         
         if st.session_state['role'] == "Manager":
-            if st.button("➕ Start New Sim", use_container_width=True):
+            if st.button("➕ Start New Sim", key="create_sim_btn", use_container_width=True):
                 rid = create_room(st.session_state['user'])
                 st.session_state['active_room'] = rid
                 st.rerun()
+
+        # REFRESH BUTTON FOR ROOMS
+        if st.button("🔄 Refresh Room List", key="refresh_rooms_btn", use_container_width=True):
+            st.rerun()
 
         # Room List
         rooms = get_rooms()
@@ -386,7 +389,11 @@ with st.sidebar:
             for idx, row in rooms.iterrows():
                 # Dynamic Icon
                 status_icon = "🟢" if row['status'] == 'Active' else "🏁"
-                if st.button(f"{status_icon} #{row['id']} {row['host']}", key=f"room_{row['id']}", use_container_width=True):
+                btn_label = f"{status_icon} #{row['id']} {row['host']}"
+                if row['agent'] != 'Waiting...':
+                     btn_label += f" vs {row['agent']}"
+                
+                if st.button(btn_label, key=f"room_btn_{row['id']}", use_container_width=True):
                     st.session_state['active_room'] = row['id']
                     if st.session_state['role'] == 'Agent' and row['agent'] == 'Waiting...':
                         join_room(row['id'], st.session_state['user'])
@@ -399,7 +406,7 @@ if not st.session_state['user']:
         st.write("")
         st.write("")
         st.markdown("<h1 style='text-align: center; color: #E2231A;'>QA Manager Pro</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center;'>Quality Assurance Simulation Environment</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #888;'>Quality Assurance Simulation Environment</p>", unsafe_allow_html=True)
         
         with st.form("login"):
             name = st.text_input("Enter your Name", placeholder="e.g. John Doe")
@@ -422,7 +429,8 @@ else:
         with col_head_1:
             st.title(f"Simulation Room #{room_id}")
         with col_head_2:
-            st.button("🔄 Refresh", key="refresh_top", use_container_width=True)
+            if st.button("🔄 Refresh Chat", key="refresh_chat_btn", use_container_width=True):
+                st.rerun()
 
         col1, col2 = st.columns([2, 1])
         
@@ -436,7 +444,7 @@ else:
             
             with chat_container:
                 if msgs.empty:
-                    st.markdown("<div style='text-align: center; color: #999; padding: 50px;'>No messages yet.<br>Start the roleplay!</div>", unsafe_allow_html=True)
+                    st.markdown("<div style='text-align: center; color: #666; padding: 50px;'>No messages yet.<br>Start the roleplay!</div>", unsafe_allow_html=True)
                 else:
                     for idx, m in msgs.iterrows():
                         role_type = m['role']
@@ -460,7 +468,7 @@ else:
                 with tab1:
                     st.write("Real-time Analysis")
                     
-                    if st.button("Run Auto-Analysis", key="run_grading", use_container_width=True):
+                    if st.button("Run Auto-Analysis", key="run_grading_btn", use_container_width=True):
                         with st.spinner("Analyzing sentiment and compliance..."):
                             time.sleep(0.5) # UI feel
                             scorecard = get_config('scorecard')
@@ -469,16 +477,16 @@ else:
                         st.markdown("---")
                         if crit:
                             st.error(f"⚠️ {crit}")
-                            st.markdown(f"<div style='text-align: center; font-size: 40px; font-weight: bold; color: #dc3545;'>0%</div>", unsafe_allow_html=True)
+                            st.markdown(f"<div style='text-align: center; font-size: 40px; font-weight: bold; color: #e57373;'>0%</div>", unsafe_allow_html=True)
                         else:
-                            color = "#28a745" if score >= 80 else "#ffc107"
+                            color = "#81c784" if score >= 80 else "#ffcc80"
                             st.markdown(f"<div style='text-align: center; font-size: 50px; font-weight: bold; color: {color};'>{score}%</div>", unsafe_allow_html=True)
                         
                         # Coaching Tips
                         if suggestions:
                             st.warning("💡 Coaching Required:")
                             for tip in suggestions:
-                                st.markdown(f"- {tip}")
+                                st.markdown(f"<div class='tip-box'>- {tip}</div>", unsafe_allow_html=True)
                         elif not crit:
                              st.success("🎉 Excellent Handling!")
 
@@ -503,7 +511,7 @@ else:
                             item['name'] = new_n
                             updated_sc.append(item)
                     
-                    if st.button("Save Changes", key="save_scorecard", use_container_width=True):
+                    if st.button("Save Changes", key="save_scorecard_btn", use_container_width=True):
                         update_config('scorecard', updated_sc)
                         st.success("Configuration Saved!")
             
