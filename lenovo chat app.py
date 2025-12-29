@@ -78,6 +78,7 @@ st.markdown("""
     .timer-ok { color: #4caf50; background: rgba(76, 175, 80, 0.1); border: 1px solid #4caf50; }
     .timer-warn { color: #ff9800; background: rgba(255, 152, 0, 0.1); border: 1px solid #ff9800; }
     .timer-crit { color: #f44336; background: rgba(244, 67, 54, 0.1); border: 1px solid #f44336; }
+    .timer-wait { color: #888; background: rgba(255, 255, 255, 0.05); border: 1px solid #444; }
 
 </style>
 """, unsafe_allow_html=True)
@@ -330,18 +331,38 @@ def get_ip():
     except: return "127.0.0.1"
 
 def check_room_status(rid):
-    """Checks for Expiry (30s) and Offline (5min)"""
+    """Checks for Expiry (30s) and Offline (5min) - Agent Only Logic"""
     try:
         conn = sqlite3.connect(DB_FILE)
-        row = conn.execute("SELECT status, last_activity FROM rooms WHERE id = ?", (rid,)).fetchone()
-        conn.close()
         
-        if not row: return "Unknown", 0
+        # 1. Get Room Details
+        room_row = conn.execute("SELECT status, last_activity, agent FROM rooms WHERE id = ?", (rid,)).fetchone()
+        if not room_row: 
+            conn.close()
+            return "Unknown", 0, False
+            
+        status, last_act_str, agent_name = room_row
         
-        status, last_act_str = row
-        if not last_act_str: return status, 0
+        # 2. If Agent hasn't joined, timer shouldn't start
+        if agent_name == 'Waiting...':
+            conn.close()
+            return status, 0, False
 
-        # Handle various timestamp formats safely
+        # 3. Get Last Message Sender Role
+        msg_row = conn.execute("SELECT role FROM messages WHERE room_id = ? ORDER BY id DESC LIMIT 1", (rid,)).fetchone()
+        last_role = msg_row[0] if msg_row else None
+        
+        # Logic: Timer active only if it's Agent's turn.
+        # It is Agent's turn if:
+        # a) No messages yet (Agent must Greet)
+        # b) Last message was from Manager (Agent must Reply)
+        # c) Agent role is different from last sender role (if last sender was not Agent)
+        is_agent_turn = (last_role != 'Agent')
+
+        if not last_act_str: 
+            conn.close()
+            return status, 0, is_agent_turn
+
         try:
             last_act = pd.to_datetime(last_act_str).to_pydatetime()
         except:
@@ -350,24 +371,23 @@ def check_room_status(rid):
         now = datetime.datetime.now()
         diff = (now - last_act).total_seconds()
 
-        # Logic
+        # 4. Status Update Logic (Only if it's Agent's turn)
         new_status = status
-        if status == 'Active':
+        if status == 'Active' and is_agent_turn:
             if diff > 300: # 5 mins
                 new_status = 'Offline'
             elif diff > 30: # 30 sec
                 new_status = 'Expired'
             
             if new_status != status:
-                conn = sqlite3.connect(DB_FILE)
                 conn.execute("UPDATE rooms SET status = ? WHERE id = ?", (new_status, rid))
                 conn.commit()
-                conn.close()
         
-        return new_status, diff
+        conn.close()
+        return new_status, diff, is_agent_turn
     except Exception as e:
         print(e)
-        return "Error", 0
+        return "Error", 0, False
 
 # --- GRADING ENGINE ---
 def grade_chat(msgs, sc):
@@ -438,16 +458,20 @@ def render_live_chat(rid):
     """Refreshes chat messages & checks timer every 0.5 seconds."""
     
     # 1. Check Timer
-    status, diff = check_room_status(rid)
+    status, diff, is_agent_turn = check_room_status(rid)
     
     # Timer Display
     if status == 'Active':
-        if diff < 30:
-            st.markdown(f"<div class='timer-badge timer-ok'>⏱️ Reply Time: {int(diff)}s / 30s</div>", unsafe_allow_html=True)
+        if is_agent_turn:
+            if diff < 30:
+                st.markdown(f"<div class='timer-badge timer-ok'>⏱️ Reply Time: {int(diff)}s / 30s</div>", unsafe_allow_html=True)
+            else:
+                st.markdown(f"<div class='timer-badge timer-crit'>⚠️ OVERTIME: {int(diff)}s</div>", unsafe_allow_html=True)
         else:
-            st.markdown(f"<div class='timer-badge timer-crit'>⚠️ OVERTIME: {int(diff)}s</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='timer-badge timer-wait'>⏳ Customer Typing...</div>", unsafe_allow_html=True)
+            
     elif status == 'Expired':
-        st.markdown(f"<div class='timer-badge timer-crit'>💀 CHAT EXPIRED (No Reply > 30s)</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='timer-badge timer-crit'>💀 CHAT EXPIRED (Agent No Reply > 30s)</div>", unsafe_allow_html=True)
     elif status == 'Offline':
         st.markdown(f"<div class='timer-badge timer-warn'>💤 OFFLINE (Inactive > 5m)</div>", unsafe_allow_html=True)
 
