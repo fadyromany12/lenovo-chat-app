@@ -10,10 +10,9 @@ import re  # Added for Regex support
 # --- PAGE CONFIGURATION (Must be first) ---
 st.set_page_config(
     page_title="Lenovo Chat App", 
-    page_icon="💬", 
+    page_icon="🔴", 
     layout="wide",
     initial_sidebar_state="expanded",
-    # Hide default menu items
     menu_items={
         'Get Help': None,
         'Report a bug': None,
@@ -21,143 +20,185 @@ st.set_page_config(
     }
 )
 
-# --- CUSTOM CSS STYLING (FORCED DARK MODE & ANIMATIONS) ---
+# --- CUSTOM CSS STYLING (FUTURISTIC UI) ---
 st.markdown("""
 <style>
-    /* --- HIDE STREAMLIT UI ELEMENTS --- */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .stDeployButton {display:none;}
-    [data-testid="stToolbar"] {visibility: hidden;}
-    [data-testid="stHeader"] {visibility: hidden;}
-    
-    /* Global Dark Theme Enforcement */
-    [data-testid="stAppViewContainer"] {
-        background-color: #121212;
-        color: #e0e0e0;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    /* IMPORT FUTURISTIC FONTS */
+    @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Roboto+Mono:wght@300;400;500&display=swap');
+
+    /* --- GLOBAL HIDES --- */
+    #MainMenu, footer, header, .stDeployButton, [data-testid="stToolbar"], [data-testid="stHeader"] {
+        visibility: hidden;
+        display: none;
     }
 
-    /* Animations */
+    /* --- MAIN APP CONTAINER --- */
+    [data-testid="stAppViewContainer"] {
+        background-color: #050505;
+        background-image: 
+            radial-gradient(circle at 10% 20%, rgba(226, 35, 26, 0.05) 0%, transparent 20%),
+            radial-gradient(circle at 90% 80%, rgba(20, 20, 20, 1) 0%, transparent 50%);
+        color: #e0e0e0;
+        font-family: 'Roboto Mono', monospace;
+    }
+
+    /* --- TYPOGRAPHY --- */
+    h1, h2, h3, h4, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
+        font-family: 'Rajdhani', sans-serif !important;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        color: #fff;
+        text-shadow: 0 0 10px rgba(226, 35, 26, 0.3);
+    }
+
+    /* --- SIDEBAR (CONTROL PANEL LOOK) --- */
+    section[data-testid="stSidebar"] {
+        background-color: rgba(10, 10, 10, 0.85);
+        border-right: 1px solid #333;
+        backdrop-filter: blur(10px);
+        box-shadow: 5px 0 20px rgba(0,0,0,0.5);
+    }
+    section[data-testid="stSidebar"] hr {
+        border-color: #333;
+    }
+
+    /* --- INPUT FIELDS (TERMINAL STYLE) --- */
+    .stTextInput input, .stSelectbox div[data-baseweb="select"] > div {
+        background-color: rgba(20, 20, 20, 0.8) !important;
+        color: #00ffcc !important; /* Cyber Cyan Text */
+        border: 1px solid #333 !important;
+        border-radius: 0px !important; /* Sharp edges */
+        font-family: 'Roboto Mono', monospace;
+        transition: all 0.3s;
+    }
+    .stTextInput input:focus, .stSelectbox div[data-baseweb="select"] > div:focus-within {
+        border-color: #E2231A !important;
+        box-shadow: 0 0 10px rgba(226, 35, 26, 0.4);
+    }
+
+    /* --- BUTTONS (HOLOGRAPHIC & ANIMATED) --- */
+    .stButton > button {
+        background: transparent;
+        border: 1px solid #E2231A;
+        color: #E2231A;
+        font-family: 'Rajdhani', sans-serif;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        border-radius: 0px;
+        padding: 0.6rem 1.2rem;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+        /* Sci-fi cut corner shape */
+        clip-path: polygon(10% 0, 100% 0, 100% 70%, 90% 100%, 0 100%, 0 30%);
+    }
+    
+    /* Hover Glow Effect */
+    .stButton > button:hover {
+        background: #E2231A;
+        color: #000;
+        box-shadow: 0 0 25px rgba(226, 35, 26, 0.6);
+        transform: translateY(-2px);
+    }
+    
+    /* Scanline Animation on Buttons */
+    .stButton > button::after {
+        content: '';
+        position: absolute;
+        top: 0; left: -100%;
+        width: 100%; height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+        transition: 0.5s;
+    }
+    .stButton > button:hover::after {
+        left: 100%;
+    }
+
+    /* --- CHAT INTERFACE (GLASS) --- */
+    .stChatMessage {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(5px);
+        border-radius: 4px;
+        border-left: 3px solid #444;
+        animation: slideIn 0.4s ease-out;
+        transition: all 0.2s;
+    }
+    .stChatMessage:hover {
+        border-left-color: #E2231A;
+        background: rgba(255, 255, 255, 0.05);
+        transform: translateX(5px);
+    }
+    div[data-testid="stChatMessageAvatar"] {
+        background: linear-gradient(135deg, #111, #333);
+        border: 1px solid #E2231A;
+        border-radius: 0px; /* Square avatars */
+    }
+
+    /* --- GRADING HUD --- */
+    .grade-container {
+        background: rgba(0, 0, 0, 0.6);
+        border: 1px solid #333;
+        padding: 15px;
+        margin-bottom: 10px;
+        border-radius: 4px;
+        position: relative;
+        overflow: hidden;
+        animation: fadeIn 0.6s ease-out;
+    }
+    .grade-pass {
+        border-left: 4px solid #00ffcc;
+        box-shadow: -5px 0 15px rgba(0, 255, 204, 0.1);
+    }
+    .grade-fail {
+        border-left: 4px solid #ff3b30;
+        box-shadow: -5px 0 15px rgba(255, 59, 48, 0.1);
+    }
+    .grade-score {
+        font-family: 'Rajdhani', sans-serif;
+        font-size: 4em;
+        font-weight: 800;
+        text-align: center;
+        margin: 10px 0;
+        text-shadow: 0 0 20px currentColor;
+    }
+
+    /* --- TIMERS --- */
+    .timer-badge {
+        font-family: 'Roboto Mono', monospace;
+        font-weight: bold;
+        text-align: center;
+        padding: 10px;
+        border: 1px solid #333;
+        background: rgba(0,0,0,0.5);
+        margin-bottom: 15px;
+        letter-spacing: 1px;
+    }
+    .timer-ok { border-color: #00ffcc; color: #00ffcc; box-shadow: 0 0 10px rgba(0,255,204,0.2); }
+    .timer-warn { border-color: #ffcc00; color: #ffcc00; }
+    .timer-crit { border-color: #ff3b30; color: #ff3b30; animation: pulse 1.5s infinite; }
+    .timer-wait { border-color: #555; color: #888; font-style: italic; }
+
+    /* --- ANIMATIONS --- */
+    @keyframes slideIn {
+        from { opacity: 0; transform: translateX(-20px); }
+        to { opacity: 1; transform: translateX(0); }
+    }
     @keyframes fadeIn {
         from { opacity: 0; transform: translateY(10px); }
         to { opacity: 1; transform: translateY(0); }
     }
-    
     @keyframes pulse {
-        0% { box-shadow: 0 0 0 0 rgba(226, 35, 26, 0.4); }
-        70% { box-shadow: 0 0 0 10px rgba(226, 35, 26, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(226, 35, 26, 0); }
+        0% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.4); }
+        70% { box-shadow: 0 0 0 10px rgba(255, 59, 48, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0); }
     }
 
-    /* Sidebar Styling */
-    section[data-testid="stSidebar"] {
-        background-color: #050505;
-        border-right: 1px solid #333;
-    }
-    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
-        color: #E2231A !important;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-    }
-    
-    /* Input Fields */
-    .stTextInput input, .stSelectbox div[data-baseweb="select"] > div {
-        background-color: #1e1e1e !important;
-        color: white !important;
-        border: 1px solid #444 !important;
-        border-radius: 6px;
-        transition: border-color 0.3s;
-    }
-    .stTextInput input:focus, .stSelectbox div[data-baseweb="select"] > div:focus-within {
-        border-color: #E2231A !important;
-    }
-    
-    /* Chat Bubbles */
-    .stChatMessage {
-        background-color: #1e1e1e;
-        border: 1px solid #333;
-        border-radius: 12px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        animation: fadeIn 0.4s ease-out;
-        transition: transform 0.2s;
-    }
-    .stChatMessage:hover {
-        transform: scale(1.01);
-        border-color: #444;
-    }
-    div[data-testid="stChatMessageAvatar"] {
-        background-color: #E2231A;
-        border-radius: 50%;
-    }
-    
-    /* Buttons */
-    .stButton > button {
-        background: linear-gradient(135deg, #E2231A 0%, #D11006 100%);
-        color: white;
-        border: none;
-        border-radius: 6px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        padding: 0.5rem 1rem;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    }
-    .stButton > button:hover {
-        background: linear-gradient(135deg, #ff4d4d 0%, #E2231A 100%);
-        transform: translateY(-2px);
-        box-shadow: 0 6px 12px rgba(226, 35, 26, 0.4);
-    }
-    .stButton > button:active {
-        transform: translateY(0);
-    }
-
-    /* Result Boxes */
-    .grade-container {
-        padding: 15px;
-        border-radius: 8px;
-        margin-bottom: 12px;
-        border-left: 5px solid;
-        background-color: #1a1a1a;
-        animation: fadeIn 0.5s ease-out;
-    }
-    .grade-pass { border-color: #2e7d32; background: linear-gradient(90deg, rgba(46,125,50,0.1) 0%, rgba(0,0,0,0) 100%); color: #a5d6a7; }
-    .grade-fail { border-color: #c62828; background: linear-gradient(90deg, rgba(198,40,40,0.1) 0%, rgba(0,0,0,0) 100%); color: #ef9a9a; }
-    .grade-score { font-size: 3em; font-weight: 800; text-align: center; margin: 15px 0; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
-    
-    /* Timer Badges */
-    .timer-badge {
-        font-weight: bold;
-        padding: 8px 16px;
-        border-radius: 20px;
-        display: block;
-        text-align: center;
-        width: 100%;
-        margin-bottom: 15px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        animation: fadeIn 0.3s;
-        font-size: 1.1em;
-    }
-    .timer-ok { color: #4caf50; background: rgba(76, 175, 80, 0.15); border: 1px solid #4caf50; }
-    .timer-warn { color: #ff9800; background: rgba(255, 152, 0, 0.15); border: 1px solid #ff9800; }
-    .timer-crit { color: #f44336; background: rgba(244, 67, 54, 0.15); border: 1px solid #f44336; animation: pulse 2s infinite; }
-    .timer-wait { color: #aaa; background: rgba(255, 255, 255, 0.08); border: 1px solid #555; }
-
-    /* Custom Scrollbar */
-    ::-webkit-scrollbar {
-        width: 10px;
-        background: #0e0e0e;
-    }
-    ::-webkit-scrollbar-thumb {
-        background: #333;
-        border-radius: 5px;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-        background: #555;
-    }
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 8px; background: #050505; }
+    ::-webkit-scrollbar-thumb { background: #333; border: 1px solid #000; }
+    ::-webkit-scrollbar-thumb:hover { background: #E2231A; }
 
 </style>
 """, unsafe_allow_html=True)
@@ -312,10 +353,9 @@ SCORECARD_STRUCTURE = {
 DEFAULT_SCORECARD = []
 for cat, items in SCORECARD_STRUCTURE.items():
     for item in items:
-        # Map keyword keys based on ID for simplicity in grading engine
         kw = item['id'] if item['id'] in KEYWORDS else ""
         if item['id'] == 'end_prof': kw = 'profClosing'
-        if item['id'] == 'next_steps': kw = 'closing' # Fallback
+        if item['id'] == 'next_steps': kw = 'closing'
         
         DEFAULT_SCORECARD.append({
             "id": item['id'],
@@ -581,16 +621,16 @@ def render_live_updates(rid):
     if status == 'Active':
         if is_agent_turn:
             if diff < 300: # 5 min
-                st.markdown(f"<div class='timer-badge timer-ok'>⏱️ Reply Time: {int(diff)}s / 300s</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='timer-badge timer-ok'>⏱️ REPLY TIME: {int(diff)}s / 300s</div>", unsafe_allow_html=True)
             else:
                 st.markdown(f"<div class='timer-badge timer-crit'>⚠️ OVERTIME: {int(diff)}s</div>", unsafe_allow_html=True)
         else:
-            st.markdown(f"<div class='timer-badge timer-wait'>⏳ Customer Typing...</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='timer-badge timer-wait'>⏳ CUSTOMER TYPING...</div>", unsafe_allow_html=True)
             
     elif status == 'Expired':
-        st.markdown(f"<div class='timer-badge timer-crit'>💀 CHAT EXPIRED (Agent No Reply > 5m)</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='timer-badge timer-crit'>💀 CHAT EXPIRED (AGENT TIMEOUT)</div>", unsafe_allow_html=True)
     elif status == 'Offline':
-        st.markdown(f"<div class='timer-badge timer-warn'>💤 OFFLINE (Inactive > 10m)</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='timer-badge timer-warn'>💤 OFFLINE (SESSION INACTIVE)</div>", unsafe_allow_html=True)
 
     # 3. Render Messages inside Scrollable Container
     with st.container(height=550):
@@ -624,7 +664,7 @@ def render_live_updates(rid):
         # --------------------------------------
 
         if msgs.empty:
-            st.markdown("<div style='text-align: center; color: #666; margin-top: 50px;'>No messages yet. Start typing!</div>", unsafe_allow_html=True)
+            st.markdown("<div style='text-align: center; color: #666; margin-top: 50px; font-style: italic;'>DECRYPTION COMPLETE. NO MESSAGES FOUND.<br>INITIATE PROTOCOL...</div>", unsafe_allow_html=True)
         else:
             for _, m in msgs.iterrows():
                 with st.chat_message(m['role'], avatar="👤" if m['role']=='Agent' else "👔"):
@@ -636,26 +676,29 @@ if 'manual_grading' not in st.session_state: st.session_state['manual_grading'] 
 
 # SIDEBAR
 with st.sidebar:
-    st.title("Lenovo Chat App")
-    st.caption(f"Network: http://{get_ip()}:8501")
+    st.markdown("<h1>🛑 LENOVO CHAT</h1>", unsafe_allow_html=True)
+    st.caption(f"SECURE LINK: http://{get_ip()}:8501")
+    st.markdown("---")
     
     if st.session_state['user']:
-        st.write(f"Logged in as: **{st.session_state['user']}** ({st.session_state['role']})")
-        if st.button("Logout", use_container_width=True):
+        st.markdown(f"<h3>👤 {st.session_state['user']}</h3>", unsafe_allow_html=True)
+        st.caption(f"ACCESS LEVEL: {st.session_state['role'].upper()}")
+        if st.button("DISCONNECT", use_container_width=True):
             st.session_state['user'] = None
             st.session_state['active_room'] = None
             st.rerun()
         
-        st.divider()
-        st.subheader("Rooms")
+        st.markdown("---")
+        st.markdown("<h3>ACTIVE SIMULATIONS</h3>", unsafe_allow_html=True)
+        
         if st.session_state['role'] == "Manager":
-            if st.button("➕ Create Room", use_container_width=True):
+            if st.button("➕ INITIATE NEW SIM", use_container_width=True):
                 rid = create_room(st.session_state['user'])
                 st.session_state['active_room'] = rid
                 st.session_state['manual_grading'] = {} # Reset grading on new room
                 st.rerun()
         
-        if st.button("🔄 Refresh Rooms", use_container_width=True): st.rerun()
+        if st.button("🔄 REFRESH FEED", use_container_width=True): st.rerun()
         
         rooms = get_rooms()
         if not rooms.empty:
@@ -679,7 +722,7 @@ with st.sidebar:
                 with c2:
                      # Delete Button for Manager
                      if st.session_state['role'] == "Manager":
-                         if st.button("🗑️", key=f"del_{r['id']}"):
+                         if st.button("✖", key=f"del_{r['id']}"):
                              delete_room(r['id'])
                              if st.session_state.get('active_room') == r['id']:
                                  st.session_state['active_room'] = None
@@ -689,11 +732,16 @@ with st.sidebar:
 if not st.session_state['user']:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
-        st.header("Login")
+        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center; font-size: 3em;'>LENOVO CHAT</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #E2231A; letter-spacing: 3px;'>SECURE SIMULATION ENVIRONMENT</p>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        
         with st.form("login_form"):
-            name = st.text_input("Name")
-            role = st.selectbox("Role", ["Manager", "Agent"])
-            if st.form_submit_button("Start", use_container_width=True):
+            name = st.text_input("IDENTIFICATION", placeholder="ENTER NAME")
+            role = st.selectbox("CLEARANCE LEVEL", ["Manager", "Agent"])
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.form_submit_button("AUTHENTICATE", use_container_width=True):
                 if name:
                     st.session_state['user'] = name
                     st.session_state['role'] = role
@@ -705,26 +753,26 @@ else:
         col_chat, col_tools = st.columns([2, 1])
         
         with col_chat:
-            st.subheader(f"Chat Room #{rid}")
+            st.markdown(f"<h2>CHAT ROOM #{rid}</h2>", unsafe_allow_html=True)
             
             # CALL THE FRAGMENT (Handles Timer + Messages)
             render_live_updates(rid)
             
             # Input outside fragment
-            if prompt := st.chat_input("Message..."):
+            if prompt := st.chat_input("TRANSMIT MESSAGE..."):
                 send_msg(rid, st.session_state['user'], st.session_state['role'], prompt)
                 st.rerun()
         
         with col_tools:
-            st.subheader("Tools")
+            st.markdown("<h2>QA TOOLS</h2>", unsafe_allow_html=True)
             if st.session_state['role'] == 'Manager':
-                tab1, tab2 = st.tabs(["Grading", "Setup"])
+                tab1, tab2 = st.tabs(["GRADING", "CONFIG"])
                 with tab1:
                     msgs = get_msgs(rid, limit=1000) # Fetch full history for grading
                     sc = get_config('scorecard')
                     
                     # 1. RUN AUTO ANALYSIS
-                    if st.button("Run Auto-Analysis", use_container_width=True):
+                    if st.button("RUN AUTO-ANALYSIS", use_container_width=True):
                         bd, crit, tips = auto_grade_chat(msgs, sc)
                         st.session_state['manual_grading'] = bd # Init manual with auto
                         st.session_state['crit_fail'] = crit
@@ -741,13 +789,14 @@ else:
                         
                         # Score Display
                         if crit:
-                            st.markdown(f"<div class='grade-container grade-fail'><div class='grade-score'>0%</div><div style='text-align:center'>{crit}</div></div>", unsafe_allow_html=True)
+                            st.markdown(f"<div class='grade-container grade-fail'><div class='grade-score' style='color:#ff3b30'>0%</div><div style='text-align:center; color:#ff3b30'>{crit}</div></div>", unsafe_allow_html=True)
                         else:
                             cls = "grade-pass" if current_score >= 85 else "grade-fail"
-                            st.markdown(f"<div class='grade-container {cls}'><div class='grade-score'>{current_score}%</div></div>", unsafe_allow_html=True)
+                            color = "#00ffcc" if current_score >= 85 else "#ff3b30"
+                            st.markdown(f"<div class='grade-container {cls}'><div class='grade-score' style='color:{color}'>{current_score}%</div></div>", unsafe_allow_html=True)
                         
                         st.write("---")
-                        st.write("### Grading Breakdown (Editable)")
+                        st.markdown("<h4>GRADING MATRIX (EDITABLE)</h4>", unsafe_allow_html=True)
                         
                         # Editable Breakdown
                         for item in sc:
@@ -772,7 +821,7 @@ else:
                         st.write("---")
                         report_text = generate_export_text(rid, msgs, current_score, st.session_state['manual_grading'], crit)
                         st.download_button(
-                            label="📥 Export Chat & Report",
+                            label="📥 EXPORT REPORT DATA",
                             data=report_text,
                             file_name=f"Lenovo_Chat_Report_{rid}.txt",
                             mime="text/plain",
@@ -780,10 +829,10 @@ else:
                         )
 
                     else:
-                        st.info("Click 'Run Auto-Analysis' to start grading.")
+                        st.info("Awaiting Analysis Command...")
                 
                 with tab2:
-                    st.info("Scorecard Config")
+                    st.info("System Configuration")
                     curr = get_config('scorecard')
                     new_sc = []
                     for i in curr:
@@ -793,11 +842,16 @@ else:
                             i['weight'] = w
                             i['name'] = n
                             new_sc.append(i)
-                    if st.button("Save Config", use_container_width=True):
+                    if st.button("SAVE CONFIGURATION", use_container_width=True):
                         update_config('scorecard', new_sc)
-                        st.success("Saved")
+                        st.success("System Updated")
             else:
-                st.info("Agent Mode Active")
-                st.markdown("Focus on the chat. Your manager will grade the conversation.")
+                st.info("AGENT INTERFACE ACTIVE")
+                st.markdown("Awaiting customer input. Maintain protocol.")
     else:
-        st.info("Select a room to begin.")
+        st.markdown("""
+        <div style='text-align: center; margin-top: 100px; opacity: 0.5;'>
+            <h2>SYSTEM READY</h2>
+            <p>SELECT SIMULATION TO ENGAGE</p>
+        </div>
+        """, unsafe_allow_html=True)
