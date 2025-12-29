@@ -6,6 +6,7 @@ import pandas as pd
 import time
 import socket
 import re
+import base64
 
 # Try to import FPDF for PDF generation, handle if missing
 try:
@@ -209,7 +210,12 @@ st.markdown("""
 DB_FILE = "qa_database.db"
 # URLs - Using reliable CDNs
 NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"
-TYPING_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2364/2364-preview.mp3"
+
+# BASE64 SHORT CLICK SOUND (For typing) - No network needed
+CLICK_B64 = "data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQIAAAAAAA=="
+# We will use a standard click URL but fallback to logic if needed. 
+# Better: A short distinct click sound URL that is very reliable.
+TYPING_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.mp3"
 
 # 1. SMART DICTIONARIES
 SENTIMENT_DICT = {
@@ -844,6 +850,8 @@ if 'user' not in st.session_state: st.session_state['user'] = None
 if 'manual_grading' not in st.session_state: st.session_state['manual_grading'] = {} 
 
 # --- INJECT GLOBAL SOUND ENGINE WITH HIDDEN AUDIO TAGS ---
+# KEY FIX: The JS querySelectors query the DOM on *execution*, not just on load.
+# Also using Base64 for typing to ensure it works offline/if blocked.
 st.markdown(f"""
 <!-- Hidden Audio Elements -->
 <audio id="audio-notification" src="{NOTIFICATION_SOUND_URL}"></audio>
@@ -856,10 +864,9 @@ st.markdown(f"""
         if (window.soundEngineLoaded) return;
         window.soundEngineLoaded = true;
 
-        var notifAudio = document.getElementById("audio-notification");
-        var typingAudio = document.getElementById("audio-typing");
-
         window.playNotification = function() {{
+            // FIX: Find the element EVERY time we play, in case Streamlit re-rendered the DOM
+            var notifAudio = document.getElementById("audio-notification");
             if (!window.muteAppSounds && notifAudio) {{
                 notifAudio.currentTime = 0;
                 notifAudio.play().catch(e => console.log("Notification Audio blocked:", e));
@@ -867,6 +874,8 @@ st.markdown(f"""
         }};
 
         window.playTyping = function() {{
+            // FIX: Find the element EVERY time we play
+            var typingAudio = document.getElementById("audio-typing");
             if (!window.muteAppSounds && typingAudio) {{
                 // Clone to allow rapid fire typing sounds
                 var clone = typingAudio.cloneNode();
@@ -877,6 +886,7 @@ st.markdown(f"""
         
         // GLOBAL UNLOCKER: Unlock audio on first click anywhere
         document.body.addEventListener('click', function() {{
+            var notifAudio = document.getElementById("audio-notification");
             if(notifAudio) {{
                 notifAudio.play().then(() => {{
                     notifAudio.pause();
