@@ -207,8 +207,9 @@ st.markdown("""
 
 # --- CONSTANTS & DICTIONARIES ---
 DB_FILE = "qa_database.db"
-# Updated Sound URL (Crisp Notification)
-SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2346/2346-preview.mp3" 
+# URLs
+NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2346/2346-preview.mp3"
+TYPING_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2364/2364-preview.mp3"
 
 # 1. SMART DICTIONARIES
 SENTIMENT_DICT = {
@@ -809,13 +810,16 @@ def render_live_updates(rid):
                 new_msgs = msgs[msgs['id'] > st.session_state[last_seen_key]]
                 current_user = st.session_state.get('user')
                 
-                # Sound Logic: Only play if NOT muted
+                # Sound Logic: Play via global JS function
                 if not st.session_state.get('mute_sounds', False):
                     if any(new_msgs['sender'] != current_user):
+                        # Use JS injection to call the global function
                         st.markdown(f"""
-                            <audio autoplay style="display:none;">
-                                <source src="{SOUND_URL}" type="audio/mpeg">
-                            </audio>
+                            <script>
+                                if (window.playNotification) {{
+                                    window.playNotification();
+                                }}
+                            </script>
                         """, unsafe_allow_html=True)
                 
                 # Update tracker
@@ -838,6 +842,55 @@ def render_live_updates(rid):
 # --- APP LAYOUT ---
 if 'user' not in st.session_state: st.session_state['user'] = None
 if 'manual_grading' not in st.session_state: st.session_state['manual_grading'] = {} 
+
+# --- INJECT GLOBAL SOUND ENGINE ---
+# This ensures audio is ready and loaded immediately, and defines functions globally.
+st.markdown(f"""
+<script>
+    // Global Sound Engine
+    (function() {{
+        // Prevent double init
+        if (window.soundEngineLoaded) return;
+        window.soundEngineLoaded = true;
+
+        var notifAudio = new Audio("{NOTIFICATION_SOUND_URL}");
+        var typingAudio = new Audio("{TYPING_SOUND_URL}");
+        
+        // Preload
+        notifAudio.load();
+        typingAudio.load();
+
+        window.playNotification = function() {{
+            if (!window.muteAppSounds) {{
+                notifAudio.currentTime = 0;
+                notifAudio.play().catch(e => console.log("Audio blocked:", e));
+            }}
+        }};
+
+        window.playTyping = function() {{
+            if (!window.muteAppSounds) {{
+                var clone = typingAudio.cloneNode();
+                clone.volume = 0.2; 
+                clone.play().catch(e => {{}});
+            }}
+        }};
+        
+        // Global Key Listener for Typing
+        document.addEventListener('keydown', function(e) {{
+            // Only play if typing in an input field
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {{
+                // Randomize slightly for realism
+                if (Math.random() > 0.5) window.playTyping(); 
+            }}
+        }});
+    }})();
+</script>
+""", unsafe_allow_html=True)
+
+# Update Mute State in JS
+mute_js_bool = "true" if st.session_state.get('mute_sounds', False) else "false"
+st.markdown(f"<script>window.muteAppSounds = {mute_js_bool};</script>", unsafe_allow_html=True)
+
 
 # SIDEBAR
 with st.sidebar:
@@ -978,29 +1031,6 @@ else:
             if prompt := st.chat_input("TRANSMIT MESSAGE..."):
                 send_msg(rid, st.session_state['user'], st.session_state['role'], prompt)
                 st.rerun()
-            
-            # NEW: TYPING SOUNDS JS INJECTION
-            mute_str = "true" if st.session_state.get('mute_sounds', False) else "false"
-            st.markdown(f"""
-            <script>
-                // Initialize sound only once if possible, or update mute state
-                var typingAudio = new Audio("https://assets.mixkit.co/active_storage/sfx/2364/2364-preview.mp3"); // Clicky sound
-                window.muteTyping = {mute_str};
-                
-                if (!window.typingListenerAttached) {{
-                    document.addEventListener('keydown', function(e) {{
-                        // Check if typing in text field and not muted
-                        if ((e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') && !window.muteTyping) {{
-                            // Clone to allow overlapping sounds (fast typing)
-                            var sound = typingAudio.cloneNode();
-                            sound.volume = 0.1; // Subtle volume
-                            sound.play().catch(e => console.log(e));
-                        }}
-                    }});
-                    window.typingListenerAttached = true;
-                }}
-            </script>
-            """, unsafe_allow_html=True)
         
         with col_tools:
             st.markdown("<h2>QA TOOLS</h2>", unsafe_allow_html=True)
