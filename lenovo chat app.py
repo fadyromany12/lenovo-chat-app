@@ -9,76 +9,141 @@ import re  # Added for Regex support
 
 # --- PAGE CONFIGURATION (Must be first) ---
 st.set_page_config(
-    page_title="Lenovo QA Manager Pro", 
-    page_icon="🔴", 
+    page_title="Lenovo Chat App", 
+    page_icon="💬", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- CUSTOM CSS STYLING (FIXED DARK MODE) ---
+# --- CUSTOM CSS STYLING (FORCED DARK MODE & ANIMATIONS) ---
 st.markdown("""
 <style>
-    /* Global Dark Theme */
+    /* Global Dark Theme Enforcement */
     [data-testid="stAppViewContainer"] {
-        background-color: #0e0e0e;
-        color: #f0f0f0;
+        background-color: #121212;
+        color: #e0e0e0;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
     
+    [data-testid="stHeader"] {
+        background-color: rgba(0,0,0,0);
+    }
+
+    /* Animations */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    @keyframes pulse {
+        0% { box-shadow: 0 0 0 0 rgba(226, 35, 26, 0.4); }
+        70% { box-shadow: 0 0 0 10px rgba(226, 35, 26, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(226, 35, 26, 0); }
+    }
+
     /* Sidebar Styling */
     section[data-testid="stSidebar"] {
         background-color: #050505;
-        border-right: 1px solid #222;
+        border-right: 1px solid #333;
     }
     section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
         color: #E2231A !important;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
     }
     
-    /* Inputs */
+    /* Input Fields */
     .stTextInput input, .stSelectbox div[data-baseweb="select"] > div {
-        background-color: #1a1a1a !important;
+        background-color: #1e1e1e !important;
         color: white !important;
-        border: 1px solid #333 !important;
+        border: 1px solid #444 !important;
+        border-radius: 6px;
+        transition: border-color 0.3s;
+    }
+    .stTextInput input:focus, .stSelectbox div[data-baseweb="select"] > div:focus-within {
+        border-color: #E2231A !important;
     }
     
     /* Chat Bubbles */
     .stChatMessage {
-        background-color: #1a1a1a;
+        background-color: #1e1e1e;
         border: 1px solid #333;
+        border-radius: 12px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        animation: fadeIn 0.4s ease-out;
+        transition: transform 0.2s;
+    }
+    .stChatMessage:hover {
+        transform: scale(1.01);
+        border-color: #444;
+    }
+    div[data-testid="stChatMessageAvatar"] {
+        background-color: #E2231A;
+        border-radius: 50%;
     }
     
     /* Buttons */
     .stButton > button {
-        background-color: #E2231A;
+        background: linear-gradient(135deg, #E2231A 0%, #D11006 100%);
         color: white;
         border: none;
-        font-weight: bold;
+        border-radius: 6px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 0.5rem 1rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
     .stButton > button:hover {
-        background-color: #ff3b30;
+        background: linear-gradient(135deg, #ff4d4d 0%, #E2231A 100%);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(226, 35, 26, 0.4);
+    }
+    .stButton > button:active {
+        transform: translateY(0);
     }
 
     /* Result Boxes */
     .grade-container {
         padding: 15px;
         border-radius: 8px;
-        margin-bottom: 10px;
+        margin-bottom: 12px;
         border-left: 5px solid;
+        background-color: #1a1a1a;
+        animation: fadeIn 0.5s ease-out;
     }
-    .grade-pass { background-color: #0a1f0a; border-color: #2e7d32; color: #a5d6a7; }
-    .grade-fail { background-color: #1f0a0a; border-color: #c62828; color: #ef9a9a; }
-    .grade-score { font-size: 2.5em; font-weight: bold; text-align: center; margin: 10px 0; }
+    .grade-pass { border-color: #2e7d32; background: linear-gradient(90deg, rgba(46,125,50,0.1) 0%, rgba(0,0,0,0) 100%); color: #a5d6a7; }
+    .grade-fail { border-color: #c62828; background: linear-gradient(90deg, rgba(198,40,40,0.1) 0%, rgba(0,0,0,0) 100%); color: #ef9a9a; }
+    .grade-score { font-size: 3em; font-weight: 800; text-align: center; margin: 15px 0; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
     
     /* Timer Badges */
     .timer-badge {
         font-weight: bold;
-        padding: 5px 10px;
-        border-radius: 4px;
+        padding: 6px 12px;
+        border-radius: 20px;
         display: inline-block;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        animation: fadeIn 0.3s;
     }
-    .timer-ok { color: #4caf50; background: rgba(76, 175, 80, 0.1); border: 1px solid #4caf50; }
-    .timer-warn { color: #ff9800; background: rgba(255, 152, 0, 0.1); border: 1px solid #ff9800; }
-    .timer-crit { color: #f44336; background: rgba(244, 67, 54, 0.1); border: 1px solid #f44336; }
-    .timer-wait { color: #888; background: rgba(255, 255, 255, 0.05); border: 1px solid #444; }
+    .timer-ok { color: #4caf50; background: rgba(76, 175, 80, 0.15); border: 1px solid #4caf50; }
+    .timer-warn { color: #ff9800; background: rgba(255, 152, 0, 0.15); border: 1px solid #ff9800; }
+    .timer-crit { color: #f44336; background: rgba(244, 67, 54, 0.15); border: 1px solid #f44336; animation: pulse 2s infinite; }
+    .timer-wait { color: #aaa; background: rgba(255, 255, 255, 0.08); border: 1px solid #555; }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+        width: 10px;
+        background: #0e0e0e;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: #333;
+        border-radius: 5px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: #555;
+    }
 
 </style>
 """, unsafe_allow_html=True)
@@ -463,7 +528,7 @@ def calculate_final_score(breakdown, crit, sc):
 def generate_export_text(rid, msgs, score, breakdown, crit):
     """Generates a text report"""
     lines = []
-    lines.append(f"LENOVO QA REPORT - ROOM #{rid}")
+    lines.append(f"LENOVO CHAT REPORT - ROOM #{rid}")
     lines.append("="*40)
     lines.append(f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append(f"Final Score: {score}%")
@@ -516,7 +581,7 @@ if 'manual_grading' not in st.session_state: st.session_state['manual_grading'] 
 
 # SIDEBAR
 with st.sidebar:
-    st.title("🔴 Lenovo QA")
+    st.title("Lenovo Chat App")
     st.caption(f"Network: http://{get_ip()}:8501")
     
     if st.session_state['user']:
@@ -654,7 +719,7 @@ else:
                         st.download_button(
                             label="📥 Export Chat & Report",
                             data=report_text,
-                            file_name=f"Lenovo_QA_Report_{rid}.txt",
+                            file_name=f"Lenovo_Chat_Report_{rid}.txt",
                             mime="text/plain",
                             use_container_width=True
                         )
