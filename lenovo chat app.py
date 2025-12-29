@@ -55,8 +55,6 @@ st.markdown("""
         color: #e0e0e0;
         font-family: 'Roboto Mono', monospace;
     }
-            
-            
 
     /* --- TYPOGRAPHY --- */
     h1, h2, h3, h4, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
@@ -210,11 +208,50 @@ st.markdown("""
     ::-webkit-scrollbar { width: 8px; background: #050505; }
     ::-webkit-scrollbar-thumb { background: #333; border: 1px solid #000; }
     ::-webkit-scrollbar-thumb:hover { background: #E2231A; }
-            
 
-            
+    /* --- SIDEBAR TOGGLE FIX (MERGED) --- */
+    [data-testid="stSidebarCollapsedControl"] {
+        display: block !important;
+        position: fixed !important;
+        top: 20px !important;
+        left: 20px !important;
+        z-index: 1000005 !important;
+        background-color: #E2231A !important;
+        border: 2px solid #FFFFFF !important;
+        border-radius: 50% !important;
+        width: 50px !important;
+        height: 50px !important;
+        padding: 10px !important;
+        box-shadow: 0 0 20px rgba(226, 35, 26, 0.9) !important;
+        transition: all 0.3s ease;
+        opacity: 0.7;
+    }
 
+    [data-testid="stSidebarCollapsedControl"]:hover {
+        opacity: 1 !important;
+        transform: scale(1.15) !important;
+        box-shadow: 0 0 30px rgba(226, 35, 26, 1) !important;
+    }
+
+    [data-testid="stSidebarCollapsedControl"] svg {
+        fill: white !important;
+        stroke: white !important;
+    }
 </style>
+
+<script>
+    /* --- AUTO-OPEN SIDEBAR SCRIPT --- */
+    const observer = new MutationObserver((mutations) => {
+        const btn = window.parent.document.querySelector('[data-testid="stSidebarCollapsedControl"]');
+        if (btn && !btn.hasAttribute('data-hover-listener')) {
+            btn.addEventListener('mouseenter', () => {
+                btn.click();
+            });
+            btn.setAttribute('data-hover-listener', 'true');
+        }
+    });
+    observer.observe(window.parent.document.body, { childList: true, subtree: true });
+</script>
 """, unsafe_allow_html=True)
 
 # --- CONSTANTS & DICTIONARIES ---
