@@ -5,7 +5,7 @@ import datetime
 import pandas as pd
 import time
 import socket
-import re  # Added for Regex support
+import re
 
 # --- PAGE CONFIGURATION (Must be first) ---
 st.set_page_config(
@@ -101,19 +101,6 @@ st.markdown("""
         box-shadow: 0 0 25px rgba(226, 35, 26, 0.6);
         transform: translateY(-2px);
     }
-    
-    /* Scanline Animation on Buttons */
-    .stButton > button::after {
-        content: '';
-        position: absolute;
-        top: 0; left: -100%;
-        width: 100%; height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-        transition: 0.5s;
-    }
-    .stButton > button:hover::after {
-        left: 100%;
-    }
 
     /* --- CHAT INTERFACE (GLASS) --- */
     .stChatMessage {
@@ -164,7 +151,7 @@ st.markdown("""
         text-shadow: 0 0 20px currentColor;
     }
 
-    /* --- TIMERS --- */
+    /* --- TIMERS & TYPING --- */
     .timer-badge {
         font-family: 'Roboto Mono', monospace;
         font-weight: bold;
@@ -178,7 +165,13 @@ st.markdown("""
     .timer-ok { border-color: #00ffcc; color: #00ffcc; box-shadow: 0 0 10px rgba(0,255,204,0.2); }
     .timer-warn { border-color: #ffcc00; color: #ffcc00; }
     .timer-crit { border-color: #ff3b30; color: #ff3b30; animation: pulse 1.5s infinite; }
-    .timer-wait { border-color: #555; color: #888; font-style: italic; }
+    
+    .typing-indicator {
+        border-color: #00ffcc; 
+        color: #00ffcc;
+        animation: pulse-green 2s infinite;
+        font-style: italic;
+    }
 
     /* --- ANIMATIONS --- */
     @keyframes slideIn {
@@ -194,6 +187,11 @@ st.markdown("""
         70% { box-shadow: 0 0 0 10px rgba(255, 59, 48, 0); }
         100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0); }
     }
+    @keyframes pulse-green {
+        0% { opacity: 0.5; box-shadow: 0 0 0 0 rgba(0, 255, 204, 0.2); }
+        50% { opacity: 1; box-shadow: 0 0 10px 0 rgba(0, 255, 204, 0.4); }
+        100% { opacity: 0.5; box-shadow: 0 0 0 0 rgba(0, 255, 204, 0.2); }
+    }
 
     /* Scrollbar */
     ::-webkit-scrollbar { width: 8px; background: #050505; }
@@ -205,7 +203,8 @@ st.markdown("""
 
 # --- CONSTANTS & DICTIONARIES ---
 DB_FILE = "qa_database.db"
-SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" # Notification Sound
+# Updated Sound URL (Crisp Notification)
+SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2346/2346-preview.mp3" 
 
 # 1. SMART DICTIONARIES
 SENTIMENT_DICT = {
@@ -316,7 +315,7 @@ KEYWORDS = {
     ]
 }
 
-# 4. HIERARCHICAL SCORECARD (Flattened for DB compatibility but logic preserved)
+# 4. HIERARCHICAL SCORECARD
 SCORECARD_STRUCTURE = {
     "Opening": [
         { "id": "greet", "text": "Opening: Greet & Intro", "weight": 2.0 },
@@ -418,6 +417,7 @@ def delete_room(rid):
     conn.close()
 
 def send_msg(rid, sender, role, text):
+    if not text.strip(): return
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     now = datetime.datetime.now()
@@ -489,6 +489,7 @@ def check_room_status(rid):
         msg_row = conn.execute("SELECT role FROM messages WHERE room_id = ? ORDER BY id DESC LIMIT 1", (rid,)).fetchone()
         last_role = msg_row[0] if msg_row else None
         
+        # Logic: If last msg was Agent, it's Customer's turn. If last msg was Customer (or None), it's Agent's turn.
         is_agent_turn = (last_role != 'Agent')
 
         if not last_act_str: 
@@ -610,23 +611,30 @@ def generate_export_text(rid, msgs, score, breakdown, crit):
 # --- UI FRAGMENTS (Modern Streamlit) ---
 @st.fragment(run_every=1)
 def render_live_updates(rid):
-    """Refreshes chat messages & checks timer every 1 second.
-       Handles both Timer (Outside) and Messages (Inside Box)
-    """
+    """Refreshes chat messages & checks timer every 1 second."""
     
     # 1. Check Status
     status, diff, is_agent_turn = check_room_status(rid)
+    user_role = st.session_state.get('role')
     
-    # 2. Render Timer (VISIBLE OUTSIDE CHAT BOX)
+    # 2. Render Timer/Status Badge (VISIBLE OUTSIDE CHAT BOX)
     if status == 'Active':
+        # Logic to show who is typing/waiting
         if is_agent_turn:
-            if diff < 300: # 5 min
-                st.markdown(f"<div class='timer-badge timer-ok'>⏱️ REPLY TIME: {int(diff)}s / 300s</div>", unsafe_allow_html=True)
+            if user_role == 'Agent':
+                 # Agent sees: YOUR TURN
+                 st.markdown(f"<div class='timer-badge timer-warn'>👉 ACTION REQUIRED: YOUR TURN ({int(diff)}s)</div>", unsafe_allow_html=True)
             else:
-                st.markdown(f"<div class='timer-badge timer-crit'>⚠️ OVERTIME: {int(diff)}s</div>", unsafe_allow_html=True)
+                 # Customer/Manager sees: Agent Writing
+                 st.markdown(f"<div class='timer-badge typing-indicator'>🔴 AGENT WRITING...</div>", unsafe_allow_html=True)
         else:
-            st.markdown(f"<div class='timer-badge timer-wait'>⏳ CUSTOMER TYPING...</div>", unsafe_allow_html=True)
-            
+            if user_role == 'Agent':
+                # Agent sees: Customer Writing
+                st.markdown(f"<div class='timer-badge typing-indicator'>👤 CUSTOMER WRITING...</div>", unsafe_allow_html=True)
+            else:
+                # Customer sees: Waiting for Agent (technically customer turn)
+                st.markdown(f"<div class='timer-badge timer-ok'>💬 PLEASE REPLY...</div>", unsafe_allow_html=True)
+
     elif status == 'Expired':
         st.markdown(f"<div class='timer-badge timer-crit'>💀 CHAT EXPIRED (AGENT TIMEOUT)</div>", unsafe_allow_html=True)
     elif status == 'Offline':
@@ -634,7 +642,7 @@ def render_live_updates(rid):
 
     # 3. Render Messages inside Scrollable Container
     with st.container(height=550):
-        msgs = get_msgs(rid, limit=50) # OPTIMIZATION: Limit to 50
+        msgs = get_msgs(rid, limit=50) 
         
         # --- NEW MESSAGE SOUND NOTIFICATION ---
         if not msgs.empty:
@@ -647,11 +655,12 @@ def render_live_updates(rid):
             
             # Detect new message
             if latest_id > st.session_state[last_seen_key]:
-                # Get the new messages
                 new_msgs = msgs[msgs['id'] > st.session_state[last_seen_key]]
-                
-                # Play Sound IF the new message is NOT from me
                 current_user = st.session_state.get('user')
+                
+                # Sound Logic:
+                # If msg from OTHER person -> Play 'Notification'
+                # If msg from ME -> Play 'Sent' (Optional, hard to do nicely, focusing on notification)
                 if any(new_msgs['sender'] != current_user):
                     st.markdown(f"""
                         <audio autoplay style="display:none;">
@@ -672,7 +681,7 @@ def render_live_updates(rid):
 
 # --- APP LAYOUT ---
 if 'user' not in st.session_state: st.session_state['user'] = None
-if 'manual_grading' not in st.session_state: st.session_state['manual_grading'] = {} # Store grading state
+if 'manual_grading' not in st.session_state: st.session_state['manual_grading'] = {} 
 
 # SIDEBAR
 with st.sidebar:
@@ -683,7 +692,28 @@ with st.sidebar:
     if st.session_state['user']:
         st.markdown(f"<h3>👤 {st.session_state['user']}</h3>", unsafe_allow_html=True)
         st.caption(f"ACCESS LEVEL: {st.session_state['role'].upper()}")
-        if st.button("DISCONNECT", use_container_width=True):
+        
+        # --- NEW: Quick Actions for Agent ---
+        if st.session_state['role'] == "Agent" and st.session_state.get('active_room'):
+             st.markdown("---")
+             st.markdown("<h3>⚡ QUICK COMMS</h3>", unsafe_allow_html=True)
+             c1, c2 = st.columns(2)
+             if c1.button("👋 Hello"):
+                 send_msg(st.session_state['active_room'], st.session_state['user'], "Agent", "Hello! Thank you for contacting Lenovo Support. My name is " + st.session_state['user'] + ". How can I assist you today?")
+                 st.rerun()
+             if c2.button("✋ Hold"):
+                 send_msg(st.session_state['active_room'], st.session_state['user'], "Agent", "Please bear with me for a moment while I check that information for you.")
+                 st.rerun()
+             if c1.button("🙏 Sorry"):
+                 send_msg(st.session_state['active_room'], st.session_state['user'], "Agent", "I apologize for the inconvenience you are facing.")
+                 st.rerun()
+             if c2.button("👋 Bye"):
+                 send_msg(st.session_state['active_room'], st.session_state['user'], "Agent", "Thank you for choosing Lenovo. Have a wonderful day!")
+                 st.rerun()
+        # ------------------------------------
+
+        st.markdown("---")
+        if st.button("LOGOUT / DISCONNECT", use_container_width=True):
             st.session_state['user'] = None
             st.session_state['active_room'] = None
             st.rerun()
@@ -695,7 +725,7 @@ with st.sidebar:
             if st.button("➕ INITIATE NEW SIM", use_container_width=True):
                 rid = create_room(st.session_state['user'])
                 st.session_state['active_room'] = rid
-                st.session_state['manual_grading'] = {} # Reset grading on new room
+                st.session_state['manual_grading'] = {} 
                 st.rerun()
         
         if st.button("🔄 REFRESH FEED", use_container_width=True): st.rerun()
@@ -703,7 +733,6 @@ with st.sidebar:
         rooms = get_rooms()
         if not rooms.empty:
             for _, r in rooms.iterrows():
-                # Status Icon Logic
                 icon = "🟢"
                 if r['status'] == 'Expired': icon = "💀"
                 elif r['status'] == 'Offline': icon = "💤"
@@ -717,10 +746,9 @@ with st.sidebar:
                         st.session_state['active_room'] = r['id']
                         if st.session_state['role'] == 'Agent' and r['agent'] == 'Waiting...':
                             join_room(r['id'], st.session_state['user'])
-                        st.session_state['manual_grading'] = {} # Reset
+                        st.session_state['manual_grading'] = {} 
                         st.rerun()
                 with c2:
-                     # Delete Button for Manager
                      if st.session_state['role'] == "Manager":
                          if st.button("✖", key=f"del_{r['id']}"):
                              delete_room(r['id'])
@@ -768,26 +796,22 @@ else:
             if st.session_state['role'] == 'Manager':
                 tab1, tab2 = st.tabs(["GRADING", "CONFIG"])
                 with tab1:
-                    msgs = get_msgs(rid, limit=1000) # Fetch full history for grading
+                    msgs = get_msgs(rid, limit=1000)
                     sc = get_config('scorecard')
                     
-                    # 1. RUN AUTO ANALYSIS
                     if st.button("RUN AUTO-ANALYSIS", use_container_width=True):
                         bd, crit, tips = auto_grade_chat(msgs, sc)
-                        st.session_state['manual_grading'] = bd # Init manual with auto
+                        st.session_state['manual_grading'] = bd 
                         st.session_state['crit_fail'] = crit
                         st.session_state['tips'] = tips
                         st.rerun()
 
-                    # 2. MANUAL GRADING FORM
                     if 'manual_grading' in st.session_state and st.session_state['manual_grading']:
                         crit = st.session_state.get('crit_fail')
                         tips = st.session_state.get('tips', [])
                         
-                        # Calculate current score based on manual toggles
                         current_score = calculate_final_score(st.session_state['manual_grading'], crit, sc)
                         
-                        # Score Display
                         if crit:
                             st.markdown(f"<div class='grade-container grade-fail'><div class='grade-score' style='color:#ff3b30'>0%</div><div style='text-align:center; color:#ff3b30'>{crit}</div></div>", unsafe_allow_html=True)
                         else:
@@ -795,15 +819,19 @@ else:
                             color = "#00ffcc" if current_score >= 85 else "#ff3b30"
                             st.markdown(f"<div class='grade-container {cls}'><div class='grade-score' style='color:{color}'>{current_score}%</div></div>", unsafe_allow_html=True)
                         
+                        # NEW: Manager Clear Chat
+                        if st.button("🗑️ CLEAR CHAT HISTORY", use_container_width=True):
+                             delete_room(rid)
+                             create_room(st.session_state['user']) # Recreate same room
+                             st.rerun()
+
                         st.write("---")
-                        st.markdown("<h4>GRADING MATRIX (EDITABLE)</h4>", unsafe_allow_html=True)
+                        st.markdown("<h4>GRADING MATRIX</h4>", unsafe_allow_html=True)
                         
-                        # Editable Breakdown
                         for item in sc:
                             name = item['name']
                             current_val = st.session_state['manual_grading'].get(name, "FAIL")
                             
-                            # Radio button for manual toggle
                             new_val = st.radio(
                                 f"{name} ({item['weight']}%)", 
                                 ["PASS", "FAIL"], 
@@ -812,12 +840,10 @@ else:
                                 key=f"radio_{name}"
                             )
                             
-                            # Update state if changed
                             if new_val != current_val:
                                 st.session_state['manual_grading'][name] = new_val
-                                st.rerun() # Refresh to update score
+                                st.rerun() 
 
-                        # Export Button
                         st.write("---")
                         report_text = generate_export_text(rid, msgs, current_score, st.session_state['manual_grading'], crit)
                         st.download_button(
