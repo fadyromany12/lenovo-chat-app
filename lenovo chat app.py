@@ -83,13 +83,20 @@ st.markdown("""
         background-color: rgba(0, 0, 0, 0.8) !important;
         border: 1px solid #E2231A !important;
         border-radius: 0px !important;
-        z-index: 100000 !important; /* Force it on top */
+        z-index: 1000001 !important; /* Increased Z-Index just in case */
         transition: all 0.3s;
+        
+        /* ADD THESE LINES TO LOCK POSITION */
+        position: fixed !important;
+        top: 15px !important;
+        left: 15px !important;
     }
     
     [data-testid="stSidebarCollapsedControl"]:hover {
         box-shadow: 0 0 15px rgba(226, 35, 26, 0.8);
         transform: scale(1.1);
+        background-color: #E2231A !important;
+        color: #000 !important;
     }
 
     /* --- INPUT FIELDS (TERMINAL STYLE) --- */
