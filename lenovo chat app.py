@@ -8,31 +8,106 @@ import time
 # --- CONFIGURATION & CONSTANTS ---
 DB_FILE = "qa_database.db"
 
+# 1. FULL KEYWORD DICTIONARY (Exact match to original)
 DEFAULT_KEYWORDS = {
-    "greetings": ['hello', 'hi', 'welcome', 'good morning', 'good afternoon', 'my name is', 'assist you'],
-    "empathy": ['sorry', 'apologize', 'understand', 'frustrating', 'regret', 'trouble', 'hear that'],
-    "hold": ['hold', 'moment', 'check', 'bear with me', 'researching'],
-    "discovery": ['?', 'what', 'how', 'need', 'looking for', 'usage', 'budget'],
-    "closing": ['anything else', 'further', 'assist', 'help you with'],
-    "prof_closing": ['thank', 'bye', 'wonderful day', 'take care', 'appreciate'],
-    "cx_critical": ['shut up', 'idiot', 'stupid', 'dumb', 'waste of time'],
-    "comp_critical": ['credit card', 'cvv', 'card number', 'expiry', 'password']
+    "greetings": [
+        'hello', 'hi', 'welcome', 'good morning', 'good afternoon', 'good evening', 
+        'thank you for contacting', 'thanks for contacting', 'how can i help', 'my name is',
+        'chatting with', 'pleasure to meet', 'reaching out', 'assist you today'
+    ],
+    "empathy": [
+        'sorry', 'apologize', 'understand', 'regret', 'unfortunate', 'frustrating', 
+        'bear with me', 'my apologies', 'sorry for the inconvenience', 'i assure you',
+        'totally understand', 'hear that', 'must be difficult', 'resolve this', 
+        'on the same page', 'make this right', 'trouble you are facing', 'i realize'
+    ],
+    "hold": [
+        'hold', 'moment', 'check', 'bear with me', 'allow me to check', 'look into this', 
+        'researching', 'brief hold', 'few minutes', 'consult', 'pull up', 'accessing', 
+        'give me a second', 'quick check', 'grabbing that info', 'double check'
+    ],
+    "warranty": [
+        'warranty', 'care', 'support', 'accessory', 'guarantee', 'repair', 'depot', 
+        'onsite', 'accidental', 'damage', 'protection', 'sealed battery', 'keep your drive', 
+        'adp', 'premier', 'upgrade warranty', 'warranty status', 'entitlement', 
+        'base warranty', 'smart performance', 'extended'
+    ],
+    "closing": [
+        'anything else', 'further', 'assist you', 'other questions', 'help you with',
+        'additional questions', 'support you', 'else i can do', 'proceed with', 
+        'ready to', 'secure this'
+    ],
+    "prof_closing": [
+        'thank', 'bye', 'wonderful day', 'great day', 'rest of your day', 'take care', 
+        'goodbye', 'appreciate your business', 'thanks for choosing', 'thanks for shopping'
+    ],
+    "csat": [
+        'survey', 'feedback', 'short survey', 'rate', 'experience', 'email', 
+        'satisfaction', 'how i did', 'valued feedback', 'fill out'
+    ],
+    "discovery": [
+        '?', 'what', 'how', 'need', 'looking for', 'intend to use', 'purpose', 
+        'usage', 'budget', 'preference', 'screen size', 'processor', 'storage', 
+        'primary use', 'work', 'school', 'gaming', 'editing', 'business', 'student',
+        'heavy', 'light', 'travel', 'desktop'
+    ],
+    "cx_critical": [
+        'shut up', 'idiot', 'stupid', 'dumb', 'hate you', 'don\'t care', 'whatever', 
+        'ridiculous', 'liar', 'waste of time', 'bullshit', 'damn'
+    ],
+    "comp_critical": [
+        'credit card', 'cvv', 'card number', 'expiry', 'social security', 'ssn', 
+        'password', 'login credentials', 'pwd'
+    ],
+    "biz_critical": [
+        'stacking', 'unauthorized discount', 'fake price'
+    ]
 }
 
+# 2. FULL SCORECARD DEFINITION
 DEFAULT_SCORECARD = [
-    {"id": "greet", "name": "Opening: Greet & Intro", "weight": 5.0, "type": "required", "keywords": "greetings"},
-    {"id": "empathy", "name": "Comm: Empathy", "weight": 15.0, "type": "required", "keywords": "empathy"},
-    {"id": "discovery", "name": "Sales: Discovery Questions", "weight": 10.0, "type": "required", "keywords": "discovery"},
-    {"id": "hold", "name": "Comm: Hold Etiquette", "weight": 5.0, "type": "optional", "keywords": "hold"},
-    {"id": "closing", "name": "Closing: Addressed Query", "weight": 5.0, "type": "required", "keywords": "closing"},
-    {"id": "end_prof", "name": "Closing: Professional End", "weight": 5.0, "type": "required", "keywords": "prof_closing"}
+    # Opening
+    {"id": "greet", "name": "Opening: Greet & Intro", "weight": 2.0, "keywords": "greetings"},
+    {"id": "confirm", "name": "Opening: Confirm Name/Reason", "weight": 3.0, "keywords": ""}, # Manual/Context
+    # Communication
+    {"id": "listening", "name": "Comm: Active Listening", "weight": 5.0, "keywords": ""},
+    {"id": "clear", "name": "Comm: Clear Language", "weight": 5.0, "keywords": ""},
+    {"id": "empathy", "name": "Comm: Empathy", "weight": 5.0, "keywords": "empathy"},
+    {"id": "tone", "name": "Comm: Tone", "weight": 2.0, "keywords": ""},
+    {"id": "hold", "name": "Comm: Hold Etiquette", "weight": 3.0, "keywords": "hold"},
+    # Sales
+    {"id": "discovery", "name": "Sales: Discovery Questions", "weight": 7.5, "keywords": "discovery"},
+    {"id": "product", "name": "Sales: Product Knowledge", "weight": 7.5, "keywords": ""},
+    {"id": "solution", "name": "Sales: Right Solution", "weight": 7.5, "keywords": ""},
+    {"id": "objection", "name": "Sales: Objection Handling", "weight": 7.5, "keywords": ""},
+    {"id": "warranty", "name": "Sales: Warranty/Accessories", "weight": 15.0, "keywords": "warranty"},
+    # Process
+    {"id": "next_steps", "name": "Process: Next Steps", "weight": 5.0, "keywords": ""},
+    {"id": "compliance", "name": "Process: Compliance", "weight": 10.0, "keywords": ""},
+    # Closing
+    {"id": "addressed", "name": "Closing: Query Addressed", "weight": 2.0, "keywords": "closing"},
+    {"id": "end_prof", "name": "Closing: Professional End", "weight": 2.0, "keywords": "prof_closing"},
+    {"id": "csat", "name": "Closing: CSAT Statement", "weight": 5.0, "keywords": "csat"}
 ]
+
+# 3. COACHING TIPS (Suggestions)
+COACHING_TIPS = {
+    "greet": "Start with a standard greeting: 'Thank you for contacting Lenovo, my name is...'",
+    "empathy": "Use empathy statements like 'I understand how frustrating this is' or 'I apologize for the delay'.",
+    "discovery": "Ask at least 2 probing questions (Who, What, Where, When, Why) to uncover customer needs.",
+    "hold": "Ask for permission before placing the customer on hold: 'May I place you on a brief hold?'",
+    "warranty": "Don't forget to mention Warranty upgrades or Accessories (ADP, Premium Support).",
+    "closing": "Ensure you explicitly ask if the customer needs further assistance.",
+    "end_prof": "Close professionally: 'Thank you for choosing Lenovo, have a great day.'",
+    "csat": "Remember to ask for the survey/feedback at the very end.",
+    "cx_critical": "Avoid negative words. Remain professional even if the customer is difficult.",
+    "comp_critical": "NEVER ask for Credit Card details or Passwords in chat."
+}
 
 # --- DATABASE FUNCTIONS ---
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    # Create Tables
     c.execute('''CREATE TABLE IF NOT EXISTS rooms 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, host TEXT, agent TEXT, status TEXT, created_at TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS messages 
@@ -102,6 +177,9 @@ def update_config(key, value):
 
 # --- AUTO GRADING ENGINE (PYTHON) ---
 def perform_grading(messages, scorecard):
+    if messages.empty:
+        return 0, {}, None, []
+
     agent_msgs = messages[messages['role'] == 'Agent']
     full_text = " ".join(agent_msgs['text'].str.lower().tolist())
     
@@ -109,16 +187,23 @@ def perform_grading(messages, scorecard):
     max_score = 0
     breakdown = {}
     critical_fail = None
+    suggestions = []
 
     # 1. Critical Checks
     for word in DEFAULT_KEYWORDS['cx_critical']:
         if word in full_text:
             critical_fail = f"CX Critical: Found '{word}'"
+            suggestions.append(COACHING_TIPS['cx_critical'])
             break
     if not critical_fail:
         for word in DEFAULT_KEYWORDS['comp_critical']:
             if word in full_text:
                 critical_fail = f"Compliance Critical: Found '{word}'"
+                suggestions.append(COACHING_TIPS['comp_critical'])
+                break
+        for word in DEFAULT_KEYWORDS['biz_critical']:
+            if word in full_text:
+                critical_fail = f"Business Critical: Found '{word}'"
                 break
     
     # 2. Scorecard Checks
@@ -131,18 +216,27 @@ def perform_grading(messages, scorecard):
             # Get keyword list name from criteria
             kw_key = criteria.get('keywords', '')
             keywords = DEFAULT_KEYWORDS.get(kw_key, [])
-            
-            # Logic
-            if kw_key == 'discovery':
-                # Count questions
+            c_id = criteria.get('id', '')
+
+            # Logic Handlers
+            if c_id == 'discovery':
+                # Count questions (?) or discovery words
                 q_count = full_text.count('?')
-                if q_count >= 2: passed = True
+                disc_count = sum(1 for k in keywords if k in full_text)
+                if q_count >= 2 or disc_count >= 2: passed = True
+            elif c_id == 'hold':
+                # Pass if hold wasn't used, or if used correctly. 
+                # For simulation, we look for hold words. If found -> PASS. If not -> N/A (Full Points)
+                # To simplify: Check if they used hold words OR if it's N/A
+                passed = True 
             elif keywords:
                 # Check simple existence
                 if any(k in full_text for k in keywords):
                     passed = True
             else:
-                # Default Pass if no keywords mapped (Manual check simulation)
+                # Default Pass for subjective items (Listening, Tone, etc)
+                # In a real app, Manager would manually toggle these. 
+                # Here we default to Pass for the simulation flow.
                 passed = True
             
             if passed:
@@ -150,9 +244,11 @@ def perform_grading(messages, scorecard):
                 breakdown[criteria['name']] = "PASS"
             else:
                 breakdown[criteria['name']] = "FAIL"
+                if c_id in COACHING_TIPS:
+                    suggestions.append(f"**{criteria['name']}**: {COACHING_TIPS[c_id]}")
     
     final_score = 0 if critical_fail else int((score / max_score) * 100) if max_score > 0 else 0
-    return final_score, breakdown, critical_fail
+    return final_score, breakdown, critical_fail, suggestions
 
 # --- MAIN APP UI ---
 st.set_page_config(page_title="Lenovo QA Sim", page_icon="💬", layout="wide")
@@ -220,19 +316,22 @@ else:
             msgs = get_messages(room_id)
             chat_container = st.container(height=500)
             with chat_container:
-                for idx, m in msgs.iterrows():
-                    is_me = m['sender'] == st.session_state['user']
-                    with st.chat_message(m['role'], avatar="👤" if m['role']=='Agent' else "👔"):
-                        st.markdown(f"**{m['sender']}**: {m['text']}")
+                if msgs.empty:
+                    st.info("No messages yet. Start typing below!")
+                else:
+                    for idx, m in msgs.iterrows():
+                        is_me = m['sender'] == st.session_state['user']
+                        # Differentiate bubbles
+                        with st.chat_message(m['role'], avatar="👤" if m['role']=='Agent' else "👔"):
+                            st.write(f"**{m['sender']}**: {m['text']}")
             
             # Input
             if prompt := st.chat_input("Type a message..."):
                 send_message(room_id, st.session_state['user'], st.session_state['role'], prompt)
                 st.rerun()
                 
-            # Auto-Refresh Button (Streamlit limitation)
-            if st.button("🔄 Refresh Chat"):
-                st.rerun()
+            # Refresh button for manual update
+            st.button("🔄 Refresh Chat", key="refresh_chat")
 
         # --- TOOLS COLUMN ---
         with col2:
@@ -243,9 +342,12 @@ else:
                 
                 # Grading Tab
                 with tab1:
-                    if st.button("run_grading", label="Run Auto-Analysis"):
+                    st.write("Click below to analyze the chat for QA scores.")
+                    
+                    # FIXED BUTTON ERROR HERE:
+                    if st.button("Run Auto-Analysis", key="run_grading"):
                         scorecard = get_config('scorecard')
-                        score, breakdown, crit = perform_grading(msgs, scorecard)
+                        score, breakdown, crit, suggestions = perform_grading(msgs, scorecard)
                         
                         st.divider()
                         if crit:
@@ -255,12 +357,20 @@ else:
                             color = "normal" if score < 80 else "inverse"
                             st.metric("Final Score", f"{score}%", delta_color=color)
                         
+                        # Coaching Tips
+                        if suggestions:
+                            st.warning("💡 Coaching Suggestions:")
+                            for tip in suggestions:
+                                st.write(f"- {tip}")
+                        else:
+                            if not crit: st.success("🎉 Perfect Chat! No suggestions.")
+
                         st.write("### Breakdown")
                         for k, v in breakdown.items():
                             if v == "PASS":
-                                st.success(f"{k}")
+                                st.success(f"✅ {k}")
                             else:
-                                st.error(f"{k}")
+                                st.error(f"❌ {k}")
 
                 # Scorecard Editor Tab
                 with tab2:
@@ -276,7 +386,7 @@ else:
                             item['name'] = new_n
                             updated_sc.append(item)
                     
-                    if st.button("Save Scorecard Changes"):
+                    if st.button("Save Scorecard Changes", key="save_scorecard"):
                         update_config('scorecard', updated_sc)
                         st.success("Saved!")
             
@@ -284,10 +394,12 @@ else:
                 # Agent View
                 st.info("You are in Agent Mode. Focus on the chat!")
                 st.markdown("""
-                **Tips:**
-                - Use 'Greeting' words.
-                - Ask at least 2 discovery questions (?).
-                - Show empathy ('sorry', 'understand').
+                **Quick Guide:**
+                - **Greeting:** Start professionally.
+                - **Discovery:** Ask 'What usage?' or 'What budget?'.
+                - **Empathy:** Say 'sorry' or 'understand' if needed.
+                - **Warranty:** Mention warranty support.
+                - **Closing:** 'Is there anything else?'
                 """)
 
     else:
