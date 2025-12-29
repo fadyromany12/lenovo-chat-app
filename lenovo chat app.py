@@ -207,8 +207,8 @@ st.markdown("""
 
 # --- CONSTANTS & DICTIONARIES ---
 DB_FILE = "qa_database.db"
-# URLs
-NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2346/2346-preview.mp3"
+# URLs - Using reliable CDNs
+NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"
 TYPING_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2364/2364-preview.mp3"
 
 # 1. SMART DICTIONARIES
@@ -843,9 +843,12 @@ def render_live_updates(rid):
 if 'user' not in st.session_state: st.session_state['user'] = None
 if 'manual_grading' not in st.session_state: st.session_state['manual_grading'] = {} 
 
-# --- INJECT GLOBAL SOUND ENGINE ---
-# This ensures audio is ready and loaded immediately, and defines functions globally.
+# --- INJECT GLOBAL SOUND ENGINE WITH HIDDEN AUDIO TAGS ---
 st.markdown(f"""
+<!-- Hidden Audio Elements -->
+<audio id="audio-notification" src="{NOTIFICATION_SOUND_URL}"></audio>
+<audio id="audio-typing" src="{TYPING_SOUND_URL}"></audio>
+
 <script>
     // Global Sound Engine
     (function() {{
@@ -853,33 +856,39 @@ st.markdown(f"""
         if (window.soundEngineLoaded) return;
         window.soundEngineLoaded = true;
 
-        var notifAudio = new Audio("{NOTIFICATION_SOUND_URL}");
-        var typingAudio = new Audio("{TYPING_SOUND_URL}");
-        
-        // Preload
-        notifAudio.load();
-        typingAudio.load();
+        var notifAudio = document.getElementById("audio-notification");
+        var typingAudio = document.getElementById("audio-typing");
 
         window.playNotification = function() {{
-            if (!window.muteAppSounds) {{
+            if (!window.muteAppSounds && notifAudio) {{
                 notifAudio.currentTime = 0;
-                notifAudio.play().catch(e => console.log("Audio blocked:", e));
+                notifAudio.play().catch(e => console.log("Notification Audio blocked:", e));
             }}
         }};
 
         window.playTyping = function() {{
-            if (!window.muteAppSounds) {{
+            if (!window.muteAppSounds && typingAudio) {{
+                // Clone to allow rapid fire typing sounds
                 var clone = typingAudio.cloneNode();
                 clone.volume = 0.2; 
                 clone.play().catch(e => {{}});
             }}
         }};
         
+        // GLOBAL UNLOCKER: Unlock audio on first click anywhere
+        document.body.addEventListener('click', function() {{
+            if(notifAudio) {{
+                notifAudio.play().then(() => {{
+                    notifAudio.pause();
+                    notifAudio.currentTime = 0;
+                }}).catch(() => {{}});
+            }}
+        }}, {{ once: true }});
+
         // Global Key Listener for Typing
         document.addEventListener('keydown', function(e) {{
             // Only play if typing in an input field
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {{
-                // Randomize slightly for realism
                 if (Math.random() > 0.5) window.playTyping(); 
             }}
         }});
@@ -900,6 +909,14 @@ with st.sidebar:
     
     # NEW: Mute Toggle
     st.checkbox("🔕 MUTE SOUNDS", key="mute_sounds", help="Disable typing and notification sounds")
+    
+    # NEW: Test Button
+    if st.button("🔊 TEST SOUND"):
+        st.markdown("""
+            <script>
+                if(window.playNotification) window.playNotification();
+            </script>
+        """, unsafe_allow_html=True)
 
     if st.session_state['user']:
         st.markdown(f"<h3>👤 {st.session_state['user']}</h3>", unsafe_allow_html=True)
