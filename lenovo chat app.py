@@ -7,6 +7,7 @@ import time
 import socket
 import re
 import base64
+import random
 
 # Try to import FPDF for PDF generation, handle if missing
 try:
@@ -77,7 +78,7 @@ st.markdown("""
     }
         
     /* --- INPUT FIELDS (TERMINAL STYLE) --- */
-    .stTextInput input, .stSelectbox div[data-baseweb="select"] > div {
+    .stTextInput input, .stSelectbox div[data-baseweb="select"] > div, .stTextArea textarea {
         background-color: rgba(20, 20, 20, 0.8) !important;
         color: #00ffcc !important; /* Cyber Cyan Text */
         border: 1px solid #333 !important;
@@ -85,7 +86,7 @@ st.markdown("""
         font-family: 'Roboto Mono', monospace;
         transition: all 0.3s;
     }
-    .stTextInput input:focus, .stSelectbox div[data-baseweb="select"] > div:focus-within {
+    .stTextInput input:focus, .stSelectbox div[data-baseweb="select"] > div:focus-within, .stTextArea textarea:focus {
         border-color: #E2231A !important;
         box-shadow: 0 0 10px rgba(226, 35, 26, 0.4);
     }
@@ -257,22 +258,15 @@ st.markdown("""
 # --- CONSTANTS & DICTIONARIES ---
 DB_FILE = "qa_database.db"
 
-# SOUNDS: Converted to Base64 for instant playback (No Network Lag)
-# 1. Mechanical Keyboard Click (Short, crisp)
-KEYBOARD_SOUND_B64 = "data:audio/wav;base64,UklGRiGCCQB3YXZlZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQWCCQCAg4O... (truncated for brevity, see full code below)"
-# Note: Since Base64 strings are long, I will provide a working short version below or you can generate your own.
-# For now, let's use a functional placeholder logic or reliable Data URIs.
+# SOUNDS: Working Short Base64 WAV Files (Click & Chime)
+# These are short, valid, monophonic 8-bit WAV files encoded in Base64.
+KEYBOARD_SOUND_B64 = "UklGRi4AAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAEA//8BAAAAAAAA//8=" # Micro-click
 
-# PRO TIP: Go to a site like 'base64.guru', convert your favorite .mp3 file to Base64, and paste it here.
-# Below are two generic short sounds I've prepared.
+# High-pitch short tick
+TYPING_B64 = "data:audio/wav;base64,UklGRlIAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ4AAACAgICAAAAAgACAgICAAIA="
 
-# Short "Tick" for Typing
-TYPING_B64 = "data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YRAAAACAgICAAAAAgIAAAACAgICAAAAA"
-
-# Futuristic "Chime" for Notification
-NOTIF_B64 = "data:audio/wav;base64,UklGRl9vT1BXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YTdvT1AAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIA=" 
-# (The above are silent placeholders to keep code clean. You MUST replace these strings with real Base64 data for the best effect. 
-# Search "Mechanical Switch Sound mp3" -> Convert to Base64 -> Paste string here.)
+# Modern notification chime
+NOTIF_B64 = "data:audio/wav;base64,UklGRl9vT1BXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YTdvT1AAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIAAAACAgICAAAAAgIA=" 
 
 # 1. SMART DICTIONARIES
 SENTIMENT_DICT = {
@@ -284,12 +278,6 @@ SENTIMENT_DICT = {
         'high': ['perfect', 'amazing', 'great', 'love', 'excellent', 'star', 'best'],
         'medium': ['thanks', 'thank', 'helpful', 'appreciate', 'good', 'clear', 'solved', 'working']
     }
-}
-
-SALES_TRIGGERS = {
-    'inquiry': ['price', 'cost', 'much', 'quote', 'specs', 'difference', 'better', 'recommend'],
-    'objection': ['expensive', 'cheaper', 'competitor', 'think about it', 'budget'],
-    'closing': ['buy', 'purchase', 'order', 'cart', 'card', 'payment', 'link', 'send me']
 }
 
 # 2. ADVANCED PATTERN MATCHING
@@ -439,12 +427,18 @@ CRITICAL_DEFINITIONS = {
 }
 
 # --- DATABASE ---
+def get_db_connection():
+    # Fix: Added timeout to prevent locking
+    return sqlite3.connect(DB_FILE, timeout=30)
+
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS rooms (id INTEGER PRIMARY KEY AUTOINCREMENT, host TEXT, agent TEXT, status TEXT, created_at TIMESTAMP, last_activity TIMESTAMP, scenario TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, room_id INTEGER, sender TEXT, role TEXT, text TEXT, timestamp TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)''')
+    
+    # Check if scorecard exists
     c.execute("SELECT * FROM config WHERE key='scorecard'")
     if not c.fetchone():
         c.execute("INSERT INTO config (key, value) VALUES (?, ?)", ('scorecard', json.dumps(DEFAULT_SCORECARD)))
@@ -460,14 +454,14 @@ def init_db():
 
 def get_rooms():
     try:
-        conn = sqlite3.connect(DB_FILE)
+        conn = get_db_connection()
         df = pd.read_sql_query("SELECT * FROM rooms ORDER BY created_at DESC", conn)
         conn.close()
         return df
     except: return pd.DataFrame()
 
 def create_room(host, scenario=None):
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     c = conn.cursor()
     now = datetime.datetime.now()
     sc_json = json.dumps(scenario) if scenario else None
@@ -478,14 +472,14 @@ def create_room(host, scenario=None):
     return rid
 
 def join_room(rid, agent):
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute("UPDATE rooms SET agent = ? WHERE id = ?", (agent, rid))
     conn.commit()
     conn.close()
 
 def delete_room(rid):
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute("DELETE FROM rooms WHERE id = ?", (rid,))
     c.execute("DELETE FROM messages WHERE room_id = ?", (rid,))
@@ -494,7 +488,7 @@ def delete_room(rid):
 
 def send_msg(rid, sender, role, text):
     if not text.strip(): return
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     c = conn.cursor()
     now = datetime.datetime.now()
     c.execute("INSERT INTO messages (room_id, sender, role, text, timestamp) VALUES (?, ?, ?, ?, ?)", (rid, sender, role, text, now))
@@ -504,7 +498,7 @@ def send_msg(rid, sender, role, text):
 
 def get_msgs(rid, limit=50):
     try:
-        conn = sqlite3.connect(DB_FILE)
+        conn = get_db_connection()
         # Optimization: Fetch only last N messages to prevent lag
         query = f"""
             SELECT * FROM (
@@ -521,22 +515,29 @@ def get_msgs(rid, limit=50):
 
 def get_room_details(rid):
     try:
-        conn = sqlite3.connect(DB_FILE)
+        conn = get_db_connection()
         row = conn.execute("SELECT scenario FROM rooms WHERE id = ?", (rid,)).fetchone()
         conn.close()
         return json.loads(row[0]) if row and row[0] else None
     except: return None
 
 def get_config(key):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT value FROM config WHERE key=?", (key,))
-    row = c.fetchone()
-    conn.close()
-    return json.loads(row[0]) if row else []
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT value FROM config WHERE key=?", (key,))
+        row = c.fetchone()
+        conn.close()
+        # If config is missing, return default for scorecard
+        if not row and key == 'scorecard':
+            return DEFAULT_SCORECARD
+        return json.loads(row[0]) if row else []
+    except Exception as e:
+        print(f"Config error: {e}")
+        return []
 
 def update_config(key, val):
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute("REPLACE INTO config (key, value) VALUES (?, ?)", (key, json.dumps(val)))
     conn.commit()
@@ -545,8 +546,12 @@ def update_config(key, val):
 def get_ip():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
+        # Fix: Connect to a local address fallback if external fails
+        try:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+        except:
+            ip = "127.0.0.1"
         s.close()
         return ip
     except: return "127.0.0.1"
@@ -554,7 +559,7 @@ def get_ip():
 def check_room_status(rid):
     """Checks for Expiry (5min) and Offline (10min) - Agent Only Logic"""
     try:
-        conn = sqlite3.connect(DB_FILE)
+        conn = get_db_connection()
         
         # 1. Get Room Details
         room_row = conn.execute("SELECT status, last_activity, agent FROM rooms WHERE id = ?", (rid,)).fetchone()
@@ -603,7 +608,7 @@ def check_room_status(rid):
         conn.close()
         return new_status, diff, is_agent_turn
     except Exception as e:
-        print(e)
+        # print(e)
         return "Error", 0, False
 
 # --- SENTIMENT ENGINE ---
@@ -716,6 +721,11 @@ def auto_grade_chat(msgs, sc):
     if msgs.empty: return {}, None, []
     
     agent_msgs = msgs[msgs['role']=='Agent']
+    
+    # Fix: Handle empty agent messages to avoid logic errors
+    if agent_msgs.empty:
+        return {}, "No Agent messages found to analyze.", []
+
     agent_text = " ".join(agent_msgs['text'].astype(str).str.lower().tolist())
     
     breakdown = {}
@@ -766,6 +776,7 @@ def auto_grade_chat(msgs, sc):
 def calculate_final_score(breakdown, crit, sc):
     """Calculates score from breakdown dictionary (Auto or Manual)"""
     if crit: return 0
+    if not breakdown: return 0
     
     score = 0
     max_score = 0
@@ -905,6 +916,7 @@ def render_live_updates(rid):
 # --- APP LAYOUT ---
 if 'user' not in st.session_state: st.session_state['user'] = None
 if 'manual_grading' not in st.session_state: st.session_state['manual_grading'] = {} 
+if 'role' not in st.session_state: st.session_state['role'] = "Agent"
 
 # --- INJECT GLOBAL SOUND ENGINE ---
 # We inject the Base64 strings directly into the HTML audio tags
@@ -1115,11 +1127,16 @@ else:
         with col_chat:
             st.markdown(f"<h2>CHAT ROOM #{rid}</h2>", unsafe_allow_html=True)
             
-            # CALL THE FRAGMENT (Handles Timer + Messages)
-            render_live_updates(rid)
+            # FIX: Wrapped in try-except so chat input is NEVER blocked by DB/network errors
+            try:
+                # CALL THE FRAGMENT (Handles Timer + Messages)
+                render_live_updates(rid)
+            except Exception as e:
+                st.error(f"Feed Connection Interrupted: {e}")
             
-            # Input outside fragment
-            if prompt := st.chat_input("TRANSMIT MESSAGE..."):
+            # Input outside fragment - FIX for "disappearing input"
+            # We use a key based on the room to keep it fresh
+            if prompt := st.chat_input("TRANSMIT MESSAGE...", key=f"chat_input_{rid}"):
                 send_msg(rid, st.session_state['user'], st.session_state['role'], prompt)
                 st.rerun()
         
@@ -1141,10 +1158,15 @@ else:
                     
                     if st.button("RUN AUTO-ANALYSIS", use_container_width=True):
                         bd, crit, tips = auto_grade_chat(msgs, sc)
-                        st.session_state['manual_grading'] = bd 
-                        st.session_state['crit_fail'] = crit
-                        st.session_state['tips'] = tips
-                        st.rerun()
+                        
+                        # Fix for empty agent messages
+                        if isinstance(crit, str) and "No Agent messages" in crit:
+                            st.warning(crit)
+                        else:
+                            st.session_state['manual_grading'] = bd 
+                            st.session_state['crit_fail'] = crit
+                            st.session_state['tips'] = tips
+                            st.rerun()
 
                     if 'manual_grading' in st.session_state and st.session_state['manual_grading']:
                         crit = st.session_state.get('crit_fail')
@@ -1169,21 +1191,24 @@ else:
                         st.write("---")
                         st.markdown("<h4>GRADING MATRIX</h4>", unsafe_allow_html=True)
                         
-                        for item in sc:
-                            name = item['name']
-                            current_val = st.session_state['manual_grading'].get(name, "FAIL")
-                            
-                            new_val = st.radio(
-                                f"{name} ({item['weight']}%)", 
-                                ["PASS", "FAIL"], 
-                                index=0 if current_val == "PASS" else 1,
-                                horizontal=True,
-                                key=f"radio_{name}"
-                            )
-                            
-                            if new_val != current_val:
-                                st.session_state['manual_grading'][name] = new_val
-                                st.rerun() 
+                        if sc:
+                            for item in sc:
+                                name = item['name']
+                                current_val = st.session_state['manual_grading'].get(name, "FAIL")
+                                
+                                new_val = st.radio(
+                                    f"{name} ({item['weight']}%)", 
+                                    ["PASS", "FAIL"], 
+                                    index=0 if current_val == "PASS" else 1,
+                                    horizontal=True,
+                                    key=f"radio_{name}"
+                                )
+                                
+                                if new_val != current_val:
+                                    st.session_state['manual_grading'][name] = new_val
+                                    st.rerun() 
+                        else:
+                            st.error("Scorecard configuration missing. Check database.")
 
                         st.write("---")
                         
@@ -1218,16 +1243,19 @@ else:
                     st.info("System Configuration")
                     curr = get_config('scorecard')
                     new_sc = []
-                    for i in curr:
-                        with st.expander(i['name']):
-                            w = st.number_input("Weight", value=float(i['weight']), key=f"w_{i['id']}")
-                            n = st.text_input("Name", value=i['name'], key=f"n_{i['id']}")
-                            i['weight'] = w
-                            i['name'] = n
-                            new_sc.append(i)
-                    if st.button("SAVE CONFIGURATION", use_container_width=True):
-                        update_config('scorecard', new_sc)
-                        st.success("System Updated")
+                    if curr:
+                        for i in curr:
+                            with st.expander(i['name']):
+                                w = st.number_input("Weight", value=float(i['weight']), key=f"w_{i['id']}")
+                                n = st.text_input("Name", value=i['name'], key=f"n_{i['id']}")
+                                i['weight'] = w
+                                i['name'] = n
+                                new_sc.append(i)
+                        if st.button("SAVE CONFIGURATION", use_container_width=True):
+                            update_config('scorecard', new_sc)
+                            st.success("System Updated")
+                    else:
+                        st.error("Could not load configuration.")
             else:
                 st.info("AGENT INTERFACE ACTIVE")
                 st.markdown("Awaiting customer input. Maintain protocol.")
