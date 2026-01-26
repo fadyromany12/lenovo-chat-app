@@ -426,80 +426,103 @@ CRITICAL_DEFINITIONS = {
     "Compliance Critical": ["PCI DSS: Asking for Credit Card info.", "GDPR: Sharing personal data."]
 }
 
-# --- DATABASE ---
+# --- DATABASE (STABILITY FIX) ---
 def get_db_connection():
-    # Fix: Added timeout to prevent locking
-    return sqlite3.connect(DB_FILE, timeout=30)
+    # Use a timeout to handle concurrent writes better
+    return sqlite3.connect(DB_FILE, timeout=10)
+
+def run_query(query, params=(), fetch_mode="all"):
+    """Helper to ensure connections always close."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute(query, params)
+        if fetch_mode == "all":
+            return c.fetchall()
+        elif fetch_mode == "one":
+            return c.fetchone()
+        else:
+            conn.commit()
+            return c.lastrowid
+    except Exception as e:
+        return None
+    finally:
+        if conn: conn.close()
 
 def init_db():
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS rooms (id INTEGER PRIMARY KEY AUTOINCREMENT, host TEXT, agent TEXT, status TEXT, created_at TIMESTAMP, last_activity TIMESTAMP, scenario TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, room_id INTEGER, sender TEXT, role TEXT, text TEXT, timestamp TIMESTAMP)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)''')
-    
-    # Check if scorecard exists
-    c.execute("SELECT * FROM config WHERE key='scorecard'")
-    if not c.fetchone():
-        c.execute("INSERT INTO config (key, value) VALUES (?, ?)", ('scorecard', json.dumps(DEFAULT_SCORECARD)))
-    
-    # MIGRATION: Ensure 'scenario' column exists for older DB files
+    conn = None
     try:
-        c.execute("ALTER TABLE rooms ADD COLUMN scenario TEXT")
-    except:
-        pass # Column likely exists
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS rooms (id INTEGER PRIMARY KEY AUTOINCREMENT, host TEXT, agent TEXT, status TEXT, created_at TIMESTAMP, last_activity TIMESTAMP, scenario TEXT)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, room_id INTEGER, sender TEXT, role TEXT, text TEXT, timestamp TIMESTAMP)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)''')
+        
+        # Check if scorecard exists
+        c.execute("SELECT * FROM config WHERE key='scorecard'")
+        if not c.fetchone():
+            c.execute("INSERT INTO config (key, value) VALUES (?, ?)", ('scorecard', json.dumps(DEFAULT_SCORECARD)))
+        
+        # MIGRATION: Ensure 'scenario' column exists
+        try:
+            c.execute("ALTER TABLE rooms ADD COLUMN scenario TEXT")
+        except:
+            pass 
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        if conn: conn.close()
 
 def get_rooms():
+    conn = None
     try:
         conn = get_db_connection()
         df = pd.read_sql_query("SELECT * FROM rooms ORDER BY created_at DESC", conn)
-        conn.close()
         return df
     except: return pd.DataFrame()
+    finally:
+        if conn: conn.close()
 
 def create_room(host, scenario=None):
-    conn = get_db_connection()
-    c = conn.cursor()
-    now = datetime.datetime.now()
     sc_json = json.dumps(scenario) if scenario else None
-    c.execute("INSERT INTO rooms (host, agent, status, created_at, last_activity, scenario) VALUES (?, ?, ?, ?, ?, ?)", (host, 'Waiting...', 'Active', now, now, sc_json))
-    rid = c.lastrowid
-    conn.commit()
-    conn.close()
-    return rid
+    now = datetime.datetime.now()
+    # Uses helper to ensure close
+    return run_query(
+        "INSERT INTO rooms (host, agent, status, created_at, last_activity, scenario) VALUES (?, ?, ?, ?, ?, ?)", 
+        (host, 'Waiting...', 'Active', now, now, sc_json), 
+        fetch_mode="commit"
+    )
 
 def join_room(rid, agent):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("UPDATE rooms SET agent = ? WHERE id = ?", (agent, rid))
-    conn.commit()
-    conn.close()
+    run_query("UPDATE rooms SET agent = ? WHERE id = ?", (agent, rid), fetch_mode="commit")
 
 def delete_room(rid):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("DELETE FROM rooms WHERE id = ?", (rid,))
-    c.execute("DELETE FROM messages WHERE room_id = ?", (rid,))
-    conn.commit()
-    conn.close()
+    conn = None
+    try:
+        conn = get_db_connection()
+        conn.execute("DELETE FROM rooms WHERE id = ?", (rid,))
+        conn.execute("DELETE FROM messages WHERE room_id = ?", (rid,))
+        conn.commit()
+    finally:
+        if conn: conn.close()
 
 def send_msg(rid, sender, role, text):
     if not text.strip(): return
-    conn = get_db_connection()
-    c = conn.cursor()
-    now = datetime.datetime.now()
-    c.execute("INSERT INTO messages (room_id, sender, role, text, timestamp) VALUES (?, ?, ?, ?, ?)", (rid, sender, role, text, now))
-    c.execute("UPDATE rooms SET last_activity = ? WHERE id = ?", (now, rid))
-    conn.commit()
-    conn.close()
-
-def get_msgs(rid, limit=50):
+    conn = None
     try:
         conn = get_db_connection()
-        # Optimization: Fetch only last N messages to prevent lag
+        now = datetime.datetime.now()
+        conn.execute("INSERT INTO messages (room_id, sender, role, text, timestamp) VALUES (?, ?, ?, ?, ?)", (rid, sender, role, text, now))
+        conn.execute("UPDATE rooms SET last_activity = ? WHERE id = ?", (now, rid))
+        conn.commit()
+    finally:
+        if conn: conn.close()
+
+def get_msgs(rid, limit=50):
+    conn = None
+    try:
+        conn = get_db_connection()
         query = f"""
             SELECT * FROM (
                 SELECT * FROM messages 
@@ -509,44 +532,30 @@ def get_msgs(rid, limit=50):
             ) ORDER BY id ASC
         """
         df = pd.read_sql_query(query, conn, params=(rid,))
-        conn.close()
         return df
     except: return pd.DataFrame()
+    finally:
+        if conn: conn.close()
 
 def get_room_details(rid):
+    row = run_query("SELECT scenario FROM rooms WHERE id = ?", (rid,), fetch_mode="one")
     try:
-        conn = get_db_connection()
-        row = conn.execute("SELECT scenario FROM rooms WHERE id = ?", (rid,)).fetchone()
-        conn.close()
         return json.loads(row[0]) if row and row[0] else None
     except: return None
 
 def get_config(key):
+    row = run_query("SELECT value FROM config WHERE key=?", (key,), fetch_mode="one")
+    if not row and key == 'scorecard': return DEFAULT_SCORECARD
     try:
-        conn = get_db_connection()
-        c = conn.cursor()
-        c.execute("SELECT value FROM config WHERE key=?", (key,))
-        row = c.fetchone()
-        conn.close()
-        # If config is missing, return default for scorecard
-        if not row and key == 'scorecard':
-            return DEFAULT_SCORECARD
         return json.loads(row[0]) if row else []
-    except Exception as e:
-        print(f"Config error: {e}")
-        return []
+    except: return []
 
 def update_config(key, val):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("REPLACE INTO config (key, value) VALUES (?, ?)", (key, json.dumps(val)))
-    conn.commit()
-    conn.close()
+    run_query("REPLACE INTO config (key, value) VALUES (?, ?)", (key, json.dumps(val)), fetch_mode="commit")
 
 def get_ip():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # Fix: Connect to a local address fallback if external fails
         try:
             s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
@@ -557,59 +566,42 @@ def get_ip():
     except: return "127.0.0.1"
 
 def check_room_status(rid):
-    """Checks for Expiry (5min) and Offline (10min) - Agent Only Logic"""
+    conn = None
     try:
         conn = get_db_connection()
-        
-        # 1. Get Room Details
-        room_row = conn.execute("SELECT status, last_activity, agent FROM rooms WHERE id = ?", (rid,)).fetchone()
-        if not room_row: 
-            conn.close()
-            return "Unknown", 0, False
+        row = conn.execute("SELECT status, last_activity, agent FROM rooms WHERE id = ?", (rid,)).fetchone()
+        if not row: return "Unknown", 0, False
             
-        status, last_act_str, agent_name = room_row
+        status, last_act_str, agent_name = row
         
-        # 2. If Agent hasn't joined, timer shouldn't start
-        if agent_name == 'Waiting...':
-            conn.close()
-            return status, 0, False
+        if agent_name == 'Waiting...': return status, 0, False
 
-        # 3. Get Last Message Sender Role
         msg_row = conn.execute("SELECT role FROM messages WHERE room_id = ? ORDER BY id DESC LIMIT 1", (rid,)).fetchone()
         last_role = msg_row[0] if msg_row else None
-        
-        # Logic: If last msg was Agent, it's Customer's turn. If last msg was Customer (or None), it's Agent's turn.
-        is_agent_turn = (last_role != 'Agent')
+        is_agent_turn = (last_role != 'Agent') # True if last msg was NOT Agent
 
-        if not last_act_str: 
-            conn.close()
-            return status, 0, is_agent_turn
+        if not last_act_str: return status, 0, is_agent_turn
 
-        try:
-            last_act = pd.to_datetime(last_act_str).to_pydatetime()
-        except:
-            last_act = datetime.datetime.now()
+        try: last_act = pd.to_datetime(last_act_str).to_pydatetime()
+        except: last_act = datetime.datetime.now()
 
-        now = datetime.datetime.now()
-        diff = (now - last_act).total_seconds()
+        diff = (datetime.datetime.now() - last_act).total_seconds()
 
-        # 4. Status Update Logic (Only if it's Agent's turn)
-        new_status = status
         if status == 'Active' and is_agent_turn:
-            if diff > 600: # 10 mins offline
-                new_status = 'Offline'
-            elif diff > 300: # 5 min expiry
-                new_status = 'Expired'
+            new_status = status
+            if diff > 600: new_status = 'Offline'
+            elif diff > 300: new_status = 'Expired'
             
             if new_status != status:
                 conn.execute("UPDATE rooms SET status = ? WHERE id = ?", (new_status, rid))
                 conn.commit()
-        
-        conn.close()
-        return new_status, diff, is_agent_turn
-    except Exception as e:
-        # print(e)
+            return new_status, diff, is_agent_turn
+            
+        return status, diff, is_agent_turn
+    except:
         return "Error", 0, False
+    finally:
+        if conn: conn.close()
 
 # --- SENTIMENT ENGINE ---
 def calculate_sentiment(text):
@@ -811,7 +803,7 @@ def generate_export_text(rid, msgs, score, breakdown, crit, scenario):
     return "\n".join(lines)
 
 # --- UI FRAGMENTS (Modern Streamlit) ---
-@st.fragment(run_every=1)
+@st.fragment(run_every=2.5)
 def render_live_updates(rid):
     """Refreshes chat messages & checks timer every 1 second."""
     
